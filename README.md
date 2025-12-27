@@ -17,6 +17,9 @@ Minimal MCP server with HTTP + stdio transports and a Blender HTTP bridge. Tool 
 - UI session: `blender.exe --factory-startup --python src/athena_mcp/blender_bridge/provider_http.py`
 - The bridge hosts `http://127.0.0.1:8765` with `/health` and `/exec` endpoints and executes requests on Blender's main thread via a timer + queue. The HTTP server runs in a background daemon thread so the Blender UI stays responsive; requests wait briefly for results and return a timeout error if the main thread does not complete in time.
 
+## Bridge URL
+- MCP calls forward to the Blender bridge at `ATHENA_BRIDGE_URL` (default `http://127.0.0.1:8765`). Override per-process: `set ATHENA_BRIDGE_URL=http://127.0.0.1:9876` before starting the MCP server.
+
 ## Verify with PowerShell
 ```powershell
 Invoke-RestMethod -Method Get http://127.0.0.1:9000/health

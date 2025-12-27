@@ -2,17 +2,11 @@ from __future__ import annotations
 
 from typing import Dict, List
 
+from ..mcp_core.bridge_client import bridge_request
 from ..mcp_core.types import BridgeFunc, JSONDict, ToolDefinition, error_response, ok_response
 from . import primitives
 
-_bridge_request: BridgeFunc
-
-
-def _default_bridge_request(tool: str, args: JSONDict) -> JSONDict:
-    raise RuntimeError("Bridge client not configured")
-
-
-_bridge_request = _default_bridge_request
+_bridge_request: BridgeFunc = bridge_request
 
 
 def set_bridge_request(func: BridgeFunc) -> None:
@@ -66,8 +60,19 @@ def call_tool(name: str, args: JSONDict) -> JSONDict:
     tool_lookup: Dict[str, ToolDefinition] = {tool.name: tool for tool in TOOLS}
     if name not in tool_lookup:
         return error_response(f"Unknown tool '{name}'", code="unknown_tool")
+    response: JSONDict
     try:
-        result = tool_lookup[name].impl(args or {})
+        response = tool_lookup[name].impl(args or {})
     except Exception as exc:  # pragma: no cover - defensive
         return error_response(str(exc), code="bridge_error")
-    return ok_response(result=result)
+
+    if isinstance(response, dict) and "ok" in response:
+        if response.get("ok"):
+            return ok_response(result=response.get("result", {}))
+        error_obj = response.get("error") or {}
+        message = error_obj.get("message") if isinstance(error_obj, dict) else "bridge error"
+        code = error_obj.get("code") if isinstance(error_obj, dict) else "bridge_error"
+        details = error_obj.get("details") if isinstance(error_obj, dict) else {}
+        return error_response(message or "bridge error", code=code or "bridge_error", details=details or {})
+
+    return ok_response(result=response)
