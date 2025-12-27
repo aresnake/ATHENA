@@ -28,6 +28,17 @@ def error_response(message: str, code: str = "error", **extra: Any) -> JSONDict:
     return data
 
 
+def jsonrpc_result(request_id: Any, result: Any) -> JSONDict:
+    return {"jsonrpc": "2.0", "id": request_id, "result": result}
+
+
+def jsonrpc_error(request_id: Any, code: int, message: str, data: Any | None = None) -> JSONDict:
+    error: JSONDict = {"code": code, "message": message}
+    if data is not None:
+        error["data"] = data
+    return {"jsonrpc": "2.0", "id": request_id, "error": error}
+
+
 @dataclass
 class ToolDefinition:
     name: str
