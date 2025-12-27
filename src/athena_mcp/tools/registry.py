@@ -76,6 +76,8 @@ def call_tool(name: str, args: JSONDict) -> JSONDict:
         message = error_obj.get("message") if isinstance(error_obj, dict) else "bridge error"
         code = error_obj.get("code") if isinstance(error_obj, dict) else "bridge_error"
         details = error_obj.get("details") if isinstance(error_obj, dict) else {}
+        if code == "bridge_tool_error":
+            return error_response(message or "bridge tool error", code="bridge_tool_error", details=details or {})
         return error_response(message or "bridge error", code=code or "bridge_error", details=details or {})
 
     return ok_response(result=response)

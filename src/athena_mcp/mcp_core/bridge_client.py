@@ -63,7 +63,5 @@ def bridge_request(tool: str, args: JSONDict, timeout: float = 2.0) -> JSONDict:
         return {"ok": True, "result": data.get("result", {})}
 
     error = data.get("error") or {}
-    message = error.get("message") if isinstance(error, dict) else "Bridge error"
-    code = error.get("code") if isinstance(error, dict) else "bridge_error"
-    details = error.get("details") if isinstance(error, dict) else {}
-    return _error(code or "bridge_error", message or "Bridge error", **(details or {}))
+    message = error.get("message") if isinstance(error, dict) else "Bridge tool error"
+    return _error("bridge_tool_error", message or "Bridge tool error", bridge_error=error)
