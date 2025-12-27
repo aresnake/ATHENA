@@ -46,6 +46,11 @@ def test_tools_list_endpoint():
             "blender-mesh-select-non-manifold",
             "blender-mesh-select-boundary",
             "blender-mesh-select-by-index",
+            "blender-mesh-set-selection",
+            "blender-mesh-bisect-plane",
+            "blender-mesh-delete-by-index",
+            "blender-capabilities",
+            "blender-validate-tool",
         }
         assert expected.issubset(names)
         for tool in tools:

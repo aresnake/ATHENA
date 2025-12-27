@@ -157,6 +157,39 @@ def _tool_blender_validate_tool(args: JSONDict) -> JSONDict:
     return _call_bridge("blender-validate-tool", {"name": args.get("name")})
 
 
+def _tool_blender_mesh_set_selection(args: JSONDict) -> JSONDict:
+    return _call_bridge(
+        "blender-mesh-set-selection",
+        {
+            "element": args.get("element"),
+            "indices": args.get("indices", []),
+            "clear": bool(args.get("clear", True)),
+        },
+    )
+
+
+def _tool_blender_mesh_bisect_plane(args: JSONDict) -> JSONDict:
+    return _call_bridge(
+        "blender-mesh-bisect-plane",
+        {
+            "plane_co": args.get("plane_co"),
+            "plane_no": args.get("plane_no"),
+            "clear_inner": bool(args.get("clear_inner", False)),
+            "clear_outer": bool(args.get("clear_outer", False)),
+        },
+    )
+
+
+def _tool_blender_mesh_delete_by_index(args: JSONDict) -> JSONDict:
+    return _call_bridge(
+        "blender-mesh-delete-by-index",
+        {
+            "element": args.get("element"),
+            "indices": args.get("indices", []),
+        },
+    )
+
+
 TOOLS: List[ToolDefinition] = [
     ToolDefinition(
         name="blender-list-objects",
@@ -307,6 +340,24 @@ TOOLS: List[ToolDefinition] = [
         description="Validate a tool name and classify execution requirements.",
         input_schema=mesh_edit.VALIDATE_TOOL_SCHEMA,
         impl=_tool_blender_validate_tool,
+    ),
+    ToolDefinition(
+        name="blender-mesh-set-selection",
+        description="Data-first selection by indices for VERT/EDGE/FACE.",
+        input_schema=mesh_edit.SAFE_SET_SELECTION_SCHEMA,
+        impl=_tool_blender_mesh_set_selection,
+    ),
+    ToolDefinition(
+        name="blender-mesh-bisect-plane",
+        description="Data-first bisect by plane with optional clearing.",
+        input_schema=mesh_edit.SAFE_BISECT_PLANE_SCHEMA,
+        impl=_tool_blender_mesh_bisect_plane,
+    ),
+    ToolDefinition(
+        name="blender-mesh-delete-by-index",
+        description="Data-first delete elements by indices.",
+        input_schema=mesh_edit.SAFE_DELETE_BY_INDEX_SCHEMA,
+        impl=_tool_blender_mesh_delete_by_index,
     ),
 ]
 

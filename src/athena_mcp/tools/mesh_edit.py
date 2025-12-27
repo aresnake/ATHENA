@@ -161,3 +161,36 @@ VALIDATE_TOOL_SCHEMA: JSONDict = {
     "required": ["name"],
     "additionalProperties": False,
 }
+
+SAFE_SET_SELECTION_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "element": {"type": "string", "enum": ["VERT", "EDGE", "FACE"]},
+        "indices": {"type": "array", "items": {"type": "integer"}},
+        "clear": {"type": "boolean", "default": True},
+    },
+    "required": ["element", "indices"],
+    "additionalProperties": False,
+}
+
+SAFE_BISECT_PLANE_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "plane_co": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+        "plane_no": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+        "clear_inner": {"type": "boolean", "default": False},
+        "clear_outer": {"type": "boolean", "default": False},
+    },
+    "required": ["plane_co", "plane_no"],
+    "additionalProperties": False,
+}
+
+SAFE_DELETE_BY_INDEX_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "element": {"type": "string", "enum": ["VERT", "EDGE", "FACE"]},
+        "indices": {"type": "array", "items": {"type": "integer"}},
+    },
+    "required": ["element", "indices"],
+    "additionalProperties": False,
+}

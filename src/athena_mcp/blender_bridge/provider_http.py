@@ -128,6 +128,18 @@ def _execute_tool(tool: str, args: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(args, dict):
             return error_response("args must be object", code="bad_request")
         return executor.validate_tool(args)
+    if tool == "blender-mesh-set-selection":
+        if not isinstance(args, dict):
+            return error_response("args must be object", code="bad_request")
+        return executor.mesh_set_selection(args)
+    if tool == "blender-mesh-bisect-plane":
+        if not isinstance(args, dict):
+            return error_response("args must be object", code="bad_request")
+        return executor.mesh_bisect_plane(args)
+    if tool == "blender-mesh-delete-by-index":
+        if not isinstance(args, dict):
+            return error_response("args must be object", code="bad_request")
+        return executor.mesh_delete_by_index(args)
     return error_response(f"Unknown tool '{tool}'", code="unknown_tool")
 
 

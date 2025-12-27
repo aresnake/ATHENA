@@ -490,6 +490,127 @@ def mesh_select_by_index(args: Dict[str, Any]) -> Dict[str, Any]:
         return error_response(str(exc), code="internal_error")
 
 
+def mesh_set_selection(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    obj, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    element = args.get("element")
+    indices = args.get("indices", [])
+    clear_sel = bool(args.get("clear", True))
+    if element not in ("VERT", "EDGE", "FACE"):
+        return error_response("element must be VERT/EDGE/FACE", code="bad_request")
+    if not isinstance(indices, list) or not all(isinstance(i, int) for i in indices):
+        return error_response("indices must be a list of integers", code="bad_request")
+    bm = bmesh.from_edit_mesh(obj.data)
+    try:
+        if clear_sel:
+            for v in bm.verts:
+                v.select_set(False)
+            for e in bm.edges:
+                e.select_set(False)
+            for f in bm.faces:
+                f.select_set(False)
+        count = 0
+        if element == "VERT":
+            for idx in indices:
+                if 0 <= idx < len(bm.verts):
+                    bm.verts[idx].select_set(True)
+                    count += 1
+        elif element == "EDGE":
+            for idx in indices:
+                if 0 <= idx < len(bm.edges):
+                    bm.edges[idx].select_set(True)
+                    count += 1
+        elif element == "FACE":
+            for idx in indices:
+                if 0 <= idx < len(bm.faces):
+                    bm.faces[idx].select_set(True)
+                    count += 1
+        bmesh.update_edit_mesh(obj.data)
+        return ok_response(result={"selected": True, "element": element, "count": count})
+    except Exception as exc:
+        return error_response(str(exc), code="internal_error")
+
+
+def mesh_bisect_plane(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    obj, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    plane_co = args.get("plane_co")
+    plane_no = args.get("plane_no")
+    if not (isinstance(plane_co, list) and len(plane_co) == 3 and all(isinstance(v, (int, float)) for v in plane_co)):
+        return error_response("plane_co must be [x, y, z]", code="bad_request")
+    if not (isinstance(plane_no, list) and len(plane_no) == 3 and all(isinstance(v, (int, float)) for v in plane_no)):
+        return error_response("plane_no must be [nx, ny, nz]", code="bad_request")
+    clear_inner = bool(args.get("clear_inner", False))
+    clear_outer = bool(args.get("clear_outer", False))
+    bm = bmesh.from_edit_mesh(obj.data)
+    try:
+        res = bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], plane_co=plane_co, plane_no=plane_no)
+        geom_cut = res.get("geom_split", []) + res.get("geom", [])
+        delete_geom = []
+        if clear_inner or clear_outer:
+            for elem in geom_cut:
+                if hasattr(elem, "calc_center_median"):
+                    center = elem.calc_center_median()
+                elif hasattr(elem, "vert"):
+                    center = elem.vert.co
+                else:
+                    continue
+                side = (center.x - plane_co[0]) * plane_no[0] + (center.y - plane_co[1]) * plane_no[1] + (center.z - plane_co[2]) * plane_no[2]
+                if clear_inner and side < 0:
+                    delete_geom.append(elem)
+                if clear_outer and side > 0:
+                    delete_geom.append(elem)
+        if delete_geom:
+            bmesh.ops.delete(bm, geom=delete_geom, context="VERTS")
+        bmesh.update_edit_mesh(obj.data)
+        return ok_response(result={"bisect": True, "clear_inner": clear_inner, "clear_outer": clear_outer})
+    except Exception as exc:
+        return error_response(str(exc), code="internal_error")
+
+
+def mesh_delete_by_index(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    obj, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    element = args.get("element")
+    indices = args.get("indices", [])
+    if element not in ("VERT", "EDGE", "FACE"):
+        return error_response("element must be VERT/EDGE/FACE", code="bad_request")
+    if not isinstance(indices, list) or not all(isinstance(i, int) for i in indices):
+        return error_response("indices must be a list of integers", code="bad_request")
+    bm = bmesh.from_edit_mesh(obj.data)
+    try:
+        delete_geom = []
+        if element == "VERT":
+            for idx in indices:
+                if 0 <= idx < len(bm.verts):
+                    delete_geom.append(bm.verts[idx])
+        elif element == "EDGE":
+            for idx in indices:
+                if 0 <= idx < len(bm.edges):
+                    delete_geom.append(bm.edges[idx])
+        elif element == "FACE":
+            for idx in indices:
+                if 0 <= idx < len(bm.faces):
+                    delete_geom.append(bm.faces[idx])
+        bmesh.ops.delete(bm, geom=delete_geom, context="VERTS")
+        bmesh.update_edit_mesh(obj.data)
+        return ok_response(result={"deleted": True, "element": element, "count": len(delete_geom)})
+    except Exception as exc:
+        return error_response(str(exc), code="internal_error")
+
+
 def capabilities(args: Dict[str, Any] | None = None) -> Dict[str, Any]:
     bpy = _require_bpy()
 

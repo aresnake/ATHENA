@@ -46,6 +46,11 @@ Invoke-RestMethod -Method Post http://127.0.0.1:9000/tools/call -Body '{"name":"
 - Select loop (extend): `{"name":"blender-mesh-select-loop","args":{"extend":true}}`
 - Bevel or extrude after selection as desired.
 
+## SAFE-FIRST vs VIEW3D-REQUIRED
+- SAFE-FIRST tools (e.g., blender-mesh-set-selection, blender-mesh-bisect-plane, blender-mesh-delete-by-index) operate via bmesh data and work headless or UI.
+- VIEW3D-REQUIRED tools rely on Blender operators that may need a 3D View context (loop/ring select). Use `blender-capabilities` / `blender-validate-tool` to check availability.
+- Example (SAFE-FIRST): set edit mode -> set-selection to verts -> bisect-plane -> delete-by-index -> continue modeling.
+
 ## Tests
 - Run `python -m pytest` (no Blender required). Tests cover tool listing, tool call routing with a mocked bridge, and an HTTP server health smoke test.
 
