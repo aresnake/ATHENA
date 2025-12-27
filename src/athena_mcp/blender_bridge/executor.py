@@ -16,7 +16,7 @@ def _require_bpy():
 def list_objects() -> Dict[str, Any]:
     bpy = _require_bpy()
     names: List[str] = [obj.name for obj in bpy.data.objects]
-    return ok_response(result={"objects": names})
+    return ok_response(result={"objects": names, "count": len(names)})
 
 
 def add_cube(name: Optional[str] = None, size: Optional[float] = None) -> Dict[str, Any]:
@@ -27,15 +27,23 @@ def add_cube(name: Optional[str] = None, size: Optional[float] = None) -> Dict[s
     cube_size = float(size) if size is not None else 1.0
 
     try:
-        mesh = bpy.data.meshes.new(f"{cube_name}_mesh")
+        final_name = cube_name
+        if bpy.data.objects.get(final_name):
+            suffix = 1
+            base = cube_name
+            while bpy.data.objects.get(f"{base}.{suffix:03d}"):
+                suffix += 1
+            final_name = f"{base}.{suffix:03d}"
+
+        mesh = bpy.data.meshes.new(f"{final_name}_mesh")
         bm = bmesh.new()
         bmesh.ops.create_cube(bm, size=cube_size)
         bm.to_mesh(mesh)
         bm.free()
 
-        obj = bpy.data.objects.new(cube_name, mesh)
+        obj = bpy.data.objects.new(final_name, mesh)
         bpy.context.scene.collection.objects.link(obj)
-        return ok_response(result={"name": obj.name})
+        return ok_response(result={"name": obj.name, "location": list(obj.location), "size": cube_size})
     except Exception as exc:
         return error_response(str(exc), code="bridge_error")
 

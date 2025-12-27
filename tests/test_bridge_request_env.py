@@ -58,6 +58,7 @@ def test_tools_call_uses_bridge_env(monkeypatch):
         assert data["ok"] is True
         assert data["result"]["echo"] == "blender-move-object"
         assert data["result"]["args"]["name"] == "Cube"
+        assert isinstance(data["result"], dict) and data["result"]
         assert getattr(bridge_server, "last_tool") == "blender-move-object"
     finally:
         mcp_server.shutdown()
@@ -97,6 +98,7 @@ def test_tools_call_bridge_tool_error(monkeypatch):
         assert data["ok"] is False
         assert data["error"]["code"] == "bridge_tool_error"
         assert "boom" in data["error"]["message"]
+        assert "bridge_error" in data["error"]["details"]
     finally:
         mcp_server.shutdown()
         mcp_thread.join(timeout=2)

@@ -25,6 +25,9 @@ Minimal MCP server with HTTP + stdio transports and a Blender HTTP bridge. Tool 
 Invoke-RestMethod -Method Get http://127.0.0.1:9000/health
 Invoke-RestMethod -Method Get http://127.0.0.1:9000/tools/list
 Invoke-RestMethod -Method Post http://127.0.0.1:9000/tools/call -Body '{"name":"blender-list-objects","args":{}}' -ContentType 'application/json'
+# Sample responses:
+# { "ok": true, "result": { "objects": ["Cube"], "count": 1 } }
+# { "ok": true, "result": { "name": "Cube", "location": [0,0,0], "size": 1.0 } }
 ```
 
 ## Tests
