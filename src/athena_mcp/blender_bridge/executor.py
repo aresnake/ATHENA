@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+
+from .responses import error_response, ok_response
 
 
 def _require_bpy():
@@ -14,28 +16,37 @@ def _require_bpy():
 def list_objects() -> Dict[str, Any]:
     bpy = _require_bpy()
     names: List[str] = [obj.name for obj in bpy.data.objects]
-    return {"objects": names}
+    return ok_response(result={"objects": names})
 
 
-def add_cube(name: str) -> Dict[str, Any]:
+def add_cube(name: Optional[str] = None, size: Optional[float] = None) -> Dict[str, Any]:
     bpy = _require_bpy()
     import bmesh  # type: ignore  # pragma: no cover - Blender runtime
 
-    mesh = bpy.data.meshes.new(f"{name}_mesh")
-    bm = bmesh.new()
-    bmesh.ops.create_cube(bm, size=1.0)
-    bm.to_mesh(mesh)
-    bm.free()
+    cube_name = name or "Cube"
+    cube_size = float(size) if size is not None else 1.0
 
-    obj = bpy.data.objects.new(name, mesh)
-    bpy.context.scene.collection.objects.link(obj)
-    return {"name": obj.name}
+    try:
+        mesh = bpy.data.meshes.new(f"{cube_name}_mesh")
+        bm = bmesh.new()
+        bmesh.ops.create_cube(bm, size=cube_size)
+        bm.to_mesh(mesh)
+        bm.free()
+
+        obj = bpy.data.objects.new(cube_name, mesh)
+        bpy.context.scene.collection.objects.link(obj)
+        return ok_response(result={"name": obj.name})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
 
 
 def move_object(name: str, location: List[float]) -> Dict[str, Any]:
     bpy = _require_bpy()
     obj = bpy.data.objects.get(name)
     if obj is None:
-        raise RuntimeError(f"Object '{name}' not found")
-    obj.location = location
-    return {"name": obj.name, "location": list(obj.location)}
+        return error_response(f"Object '{name}' not found", code="not_found")
+    try:
+        obj.location = location
+        return ok_response(result={"name": obj.name, "location": list(obj.location)})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")

@@ -23,7 +23,10 @@ def _tool_blender_list_objects(args: JSONDict) -> JSONDict:
 
 
 def _tool_blender_add_cube(args: JSONDict) -> JSONDict:
-    return _call_bridge("blender-add-cube", args or {})
+    payload = {"name": args.get("name") or "Cube"}
+    if "size" in args:
+        payload["size"] = args["size"]
+    return _call_bridge("blender-add-cube", payload)
 
 
 def _tool_blender_move_object(args: JSONDict) -> JSONDict:

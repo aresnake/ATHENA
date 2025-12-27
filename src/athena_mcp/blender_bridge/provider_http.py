@@ -51,19 +51,22 @@ def _execute_tool(tool: str, args: Dict[str, Any]) -> Dict[str, Any]:
     if tool == "blender-list-objects":
         return executor.list_objects()
     if tool == "blender-add-cube":
-        name = args.get("name", "Cube")
-        if not isinstance(name, str):
-            raise RuntimeError("name must be a string")
-        return executor.add_cube(name)
+        name = args.get("name") if isinstance(args, dict) else None
+        size = args.get("size") if isinstance(args, dict) else None
+        if name is not None and not isinstance(name, str):
+            return error_response("name must be a string", code="bad_request")
+        if size is not None and not isinstance(size, (int, float)):
+            return error_response("size must be a number", code="bad_request")
+        return executor.add_cube(name=name, size=size)
     if tool == "blender-move-object":
         name = args.get("name")
         location = args.get("location")
         if not isinstance(name, str):
-            raise RuntimeError("name must be provided")
+            return error_response("name must be provided", code="bad_request")
         if not isinstance(location, list) or len(location) != 3:
-            raise RuntimeError("location must be [x, y, z]")
+            return error_response("location must be [x, y, z]", code="bad_request")
         return executor.move_object(name, location)
-    raise RuntimeError(f"Unknown tool '{tool}'")
+    return error_response(f"Unknown tool '{tool}'", code="unknown_tool")
 
 
 class BridgeRequestHandler(BaseHTTPRequestHandler):
@@ -137,7 +140,8 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             self._send_json(error_response("execution timeout", code="timeout"), status=504)
             return
         if result_box.get("status") != "ok":
-            self._send_json(error_response(result_box.get("error", "bridge error"), code="bridge_error"), status=500)
+            error_payload = result_box.get("error", "bridge error")
+            self._send_json(error_response(str(error_payload), code="bridge_error"), status=200)
             return
         self._send_json(ok_response(result=result_box.get("result", {})))
 

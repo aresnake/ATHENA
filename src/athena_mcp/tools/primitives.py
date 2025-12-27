@@ -14,8 +14,8 @@ ADD_CUBE_SCHEMA: JSONDict = {
     "type": "object",
     "properties": {
         "name": {"type": "string"},
+        "size": {"type": "number"},
     },
-    "required": ["name"],
     "additionalProperties": False,
 }
 
