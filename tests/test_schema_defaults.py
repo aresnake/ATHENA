@@ -23,3 +23,12 @@ def test_safe_bisect_defaults():
     props = schema.get("properties", {})
     assert props["clear_inner"].get("default") is False
     assert props["clear_outer"].get("default") is False
+
+
+def test_duplicate_selection_defaults():
+    tools = {t.name: t for t in registry.TOOLS}
+    schema = tools["blender-mesh-duplicate-selection"].input_schema
+    props = schema.get("properties", {})
+    assert props["dx"]["default"] == 0.0
+    assert props["dy"]["default"] == 0.0
+    assert props["dz"]["default"] == 0.0

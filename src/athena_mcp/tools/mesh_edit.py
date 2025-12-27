@@ -249,3 +249,13 @@ SELECT_BY_NORMAL_SCHEMA: JSONDict = {
     "required": ["axis"],
     "additionalProperties": False,
 }
+
+DUPLICATE_SELECTION_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "dx": {"type": "number", "default": 0.0},
+        "dy": {"type": "number", "default": 0.0},
+        "dz": {"type": "number", "default": 0.0},
+    },
+    "additionalProperties": False,
+}

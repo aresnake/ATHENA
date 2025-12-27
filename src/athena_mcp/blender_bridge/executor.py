@@ -754,6 +754,50 @@ def mesh_select_by_normal(args: Dict[str, Any]) -> Dict[str, Any]:
         return error_response(str(exc), code="internal_error")
 
 
+def mesh_duplicate_selection(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    obj, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    dx = float(args.get("dx", 0.0))
+    dy = float(args.get("dy", 0.0))
+    dz = float(args.get("dz", 0.0))
+    bm = bmesh.from_edit_mesh(obj.data)
+    try:
+        geom = [v for v in bm.verts if v.select] + [e for e in bm.edges if e.select] + [f for f in bm.faces if f.select]
+        if not geom:
+            return error_response(
+                "nothing selected",
+                code="invalid_args",
+                details={"tool": "blender-mesh-duplicate-selection", "reason": "nothing selected", "hint": "Select geometry before duplicating."},
+            )
+        res = bmesh.ops.duplicate(bm, geom=geom)
+        geom_dupe = res.get("geom", [])
+        verts_dupe = [g for g in geom_dupe if isinstance(g, bmesh.types.BMVert)]
+        edges_dupe = [g for g in geom_dupe if isinstance(g, bmesh.types.BMEdge)]
+        faces_dupe = [g for g in geom_dupe if isinstance(g, bmesh.types.BMFace)]
+        if dx or dy or dz:
+            bmesh.ops.translate(bm, vec=(dx, dy, dz), verts=verts_dupe)
+        bmesh.update_edit_mesh(obj.data, loop_triangles=False, destructive=False)
+        return ok_response(
+            result={
+                "duplicated": True,
+                "delta": [dx, dy, dz],
+                "new_verts": len(verts_dupe),
+                "new_edges": len(edges_dupe),
+                "new_faces": len(faces_dupe),
+            }
+        )
+    except Exception as exc:
+        return error_response(
+            str(exc),
+            code="internal_error",
+            details={"tool": "blender-mesh-duplicate-selection", "reason": str(exc)},
+        )
+
+
 def capabilities(args: Dict[str, Any] | None = None) -> Dict[str, Any]:
     bpy = _require_bpy()
 

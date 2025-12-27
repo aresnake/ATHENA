@@ -58,6 +58,10 @@ Invoke-RestMethod -Method Post http://127.0.0.1:9000/tools/call -Body '{"name":"
 - Inset selection: `{"name":"blender-mesh-inset-selection","args":{"thickness":0.05,"depth":0.0}}`
 - Select by normal: `{"name":"blender-mesh-select-by-normal","args":{"axis":"Z","threshold":0.9}}`
 
+## Pack 06 SAFE-FIRST (duplicate)
+- Duplicate selection with offset: `{"name":"blender-mesh-duplicate-selection","args":{"dx":0,"dy":0,"dz":1}}`
+- Sample chain: select top face by normal -> duplicate-selection dz=1 -> inset-selection -> extrude-selection -> set-mode OBJECT
+
 ## Tests
 - Run `python -m pytest` (no Blender required). Tests cover tool listing, tool call routing with a mocked bridge, and an HTTP server health smoke test.
 

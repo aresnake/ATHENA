@@ -234,6 +234,13 @@ def _tool_blender_mesh_select_by_normal(args: JSONDict) -> JSONDict:
     )
 
 
+def _tool_blender_mesh_duplicate_selection(args: JSONDict) -> JSONDict:
+    return _call_bridge(
+        "blender-mesh-duplicate-selection",
+        {"dx": args.get("dx", 0.0), "dy": args.get("dy", 0.0), "dz": args.get("dz", 0.0)},
+    )
+
+
 TOOLS: List[ToolDefinition] = [
     ToolDefinition(
         name="blender-list-objects",
@@ -432,6 +439,12 @@ TOOLS: List[ToolDefinition] = [
         description="Select faces by normal direction via bmesh (SAFE-FIRST).",
         input_schema=mesh_edit.SELECT_BY_NORMAL_SCHEMA,
         impl=_tool_blender_mesh_select_by_normal,
+    ),
+    ToolDefinition(
+        name="blender-mesh-duplicate-selection",
+        description="Duplicate current selection via bmesh (SAFE-FIRST).",
+        input_schema=mesh_edit.DUPLICATE_SELECTION_SCHEMA,
+        impl=_tool_blender_mesh_duplicate_selection,
     ),
 ]
 
