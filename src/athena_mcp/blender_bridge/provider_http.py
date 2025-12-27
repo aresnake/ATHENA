@@ -3,10 +3,16 @@ from __future__ import annotations
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, Dict, Optional
+import sys
 
-from ..mcp_core.types import error_response, ok_response
-from . import executor, queue as task_queue
+if __package__ is None or __package__ == "":  # pragma: no cover - Blender script execution
+    sys.path.append(str(Path(__file__).resolve().parents[2]))
+    __package__ = "athena_mcp.blender_bridge"
+
+from athena_mcp.blender_bridge import executor, queue as task_queue  # type: ignore  # noqa: E402
+from athena_mcp.blender_bridge.responses import error_response, ok_response  # type: ignore  # noqa: E402
 
 try:
     import bpy  # type: ignore
