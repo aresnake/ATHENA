@@ -34,8 +34,11 @@ Invoke-RestMethod -Method Post http://127.0.0.1:9000/tools/call -Body '{"name":"
 1. Add a cube: `{"name":"blender-add-cube","args":{"name":"Cube"}}`
 2. Enter edit mode: `{"name":"blender-set-mode","args":{"mode":"EDIT","name":"Cube"}}`
 3. Select all: `{"name":"blender-select-all","args":{}}`
-4. Extrude up: `{"name":"blender-mesh-extrude","args":{"x":0,"y":0,"z":1}}`
-5. Return to object mode: `{"name":"blender-set-mode","args":{"mode":"OBJECT","name":"Cube"}}`
+4. Bevel edges: `{"name":"blender-mesh-bevel","args":{"offset":0.02,"segments":1}}`
+5. Add loop cut: `{"name":"blender-mesh-loop-cut","args":{"cuts":1}}`
+6. Inset faces: `{"name":"blender-mesh-inset","args":{"thickness":0.05,"depth":0.0}}`
+7. Extrude up: `{"name":"blender-mesh-extrude","args":{"x":0,"y":0,"z":1}}`
+8. Return to object mode: `{"name":"blender-set-mode","args":{"mode":"OBJECT","name":"Cube"}}`
 
 ## Tests
 - Run `python -m pytest` (no Blender required). Tests cover tool listing, tool call routing with a mocked bridge, and an HTTP server health smoke test.

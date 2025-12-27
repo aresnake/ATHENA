@@ -65,7 +65,39 @@ def _tool_blender_mesh_extrude(args: JSONDict) -> JSONDict:
 
 
 def _tool_blender_mesh_inset(args: JSONDict) -> JSONDict:
-    return _call_bridge("blender-mesh-inset", {"thickness": args.get("thickness")})
+    return _call_bridge("blender-mesh-inset", {"thickness": args.get("thickness"), "depth": args.get("depth")})
+
+
+def _tool_blender_mesh_loop_cut(args: JSONDict) -> JSONDict:
+    return _call_bridge(
+        "blender-mesh-loop-cut",
+        {"cuts": args.get("cuts", 1), "smoothness": args.get("smoothness", 0.0)},
+    )
+
+
+def _tool_blender_mesh_bevel(args: JSONDict) -> JSONDict:
+    return _call_bridge(
+        "blender-mesh-bevel",
+        {
+            "offset": args.get("offset", 0.02),
+            "segments": args.get("segments", 1),
+            "profile": args.get("profile", 0.5),
+        },
+    )
+
+
+def _tool_blender_mesh_subdivide(args: JSONDict) -> JSONDict:
+    return _call_bridge(
+        "blender-mesh-subdivide",
+        {
+            "cuts": args.get("cuts", 1),
+            "smooth": args.get("smooth", 0.0),
+        },
+    )
+
+
+def _tool_blender_mesh_merge(args: JSONDict) -> JSONDict:
+    return _call_bridge("blender-mesh-merge", {"type": args.get("type")})
 
 
 TOOLS: List[ToolDefinition] = [
@@ -134,6 +166,30 @@ TOOLS: List[ToolDefinition] = [
         description="Inset current selection by thickness.",
         input_schema=mesh_edit.MESH_INSET_SCHEMA,
         impl=_tool_blender_mesh_inset,
+    ),
+    ToolDefinition(
+        name="blender-mesh-loop-cut",
+        description="Create loop cuts on the mesh.",
+        input_schema=mesh_edit.LOOP_CUT_SCHEMA,
+        impl=_tool_blender_mesh_loop_cut,
+    ),
+    ToolDefinition(
+        name="blender-mesh-bevel",
+        description="Bevel current selection.",
+        input_schema=mesh_edit.BEVEL_SCHEMA,
+        impl=_tool_blender_mesh_bevel,
+    ),
+    ToolDefinition(
+        name="blender-mesh-subdivide",
+        description="Subdivide current selection.",
+        input_schema=mesh_edit.SUBDIVIDE_SCHEMA,
+        impl=_tool_blender_mesh_subdivide,
+    ),
+    ToolDefinition(
+        name="blender-mesh-merge",
+        description="Merge selection elements.",
+        input_schema=mesh_edit.MERGE_SCHEMA,
+        impl=_tool_blender_mesh_merge,
     ),
 ]
 

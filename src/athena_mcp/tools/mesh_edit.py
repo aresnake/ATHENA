@@ -56,7 +56,45 @@ MESH_INSET_SCHEMA: JSONDict = {
     "type": "object",
     "properties": {
         "thickness": {"type": "number"},
+        "depth": {"type": "number"},
     },
     "required": ["thickness"],
+    "additionalProperties": False,
+}
+
+LOOP_CUT_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "cuts": {"type": "integer", "minimum": 1},
+        "smoothness": {"type": "number"},
+    },
+    "additionalProperties": False,
+}
+
+BEVEL_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "offset": {"type": "number"},
+        "segments": {"type": "integer", "minimum": 1},
+        "profile": {"type": "number"},
+    },
+    "additionalProperties": False,
+}
+
+SUBDIVIDE_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "cuts": {"type": "integer", "minimum": 1},
+        "smooth": {"type": "number"},
+    },
+    "additionalProperties": False,
+}
+
+MERGE_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "type": {"type": "string", "enum": ["CENTER", "CURSOR", "FIRST", "LAST"]},
+    },
+    "required": ["type"],
     "additionalProperties": False,
 }

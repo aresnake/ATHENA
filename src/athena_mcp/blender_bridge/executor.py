@@ -223,11 +223,71 @@ def mesh_inset(args: Dict[str, Any]) -> Dict[str, Any]:
     _, err = _ensure_edit_mode(bpy)
     if err:
         return err
-    if "thickness" not in args:
-        return error_response("thickness is required", code="bad_request")
     try:
-        thickness = float(args.get("thickness"))
-        bpy.ops.mesh.inset(thickness=thickness)
-        return ok_response(result={"inset": True, "thickness": thickness})
+        thickness = float(args.get("thickness", 0.05))
+        depth = float(args.get("depth", 0.0))
+        bpy.ops.mesh.inset(thickness=thickness, depth=depth)
+        return ok_response(result={"inset": True, "thickness": thickness, "depth": depth})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_loop_cut(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    _, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    cuts = int(args.get("cuts", 1))
+    smoothness = float(args.get("smoothness", 0.0))
+    try:
+        if hasattr(bpy.ops.mesh, "loopcut_slide"):
+            bpy.ops.mesh.loopcut_slide(MESH_OT_loopcut={"number_cuts": cuts}, TRANSFORM_OT_edge_slide={"value": smoothness})
+        else:
+            bpy.ops.mesh.loopcut(number_cuts=cuts, smoothness=smoothness)
+        return ok_response(result={"loop_cut": True, "cuts": cuts})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_bevel(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    _, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    offset = float(args.get("offset", 0.02))
+    segments = int(args.get("segments", 1))
+    profile = float(args.get("profile", 0.5))
+    try:
+        bpy.ops.mesh.bevel(offset=offset, segments=segments, profile=profile)
+        return ok_response(result={"bevel": True, "offset": offset, "segments": segments, "profile": profile})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_subdivide(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    _, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    cuts = int(args.get("cuts", 1))
+    smooth = float(args.get("smooth", 0.0))
+    try:
+        bpy.ops.mesh.subdivide(number_cuts=cuts, smoothness=smooth)
+        return ok_response(result={"subdivide": True, "cuts": cuts, "smooth": smooth})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_merge(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    _, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    merge_type = args.get("type")
+    if merge_type not in ("CENTER", "CURSOR", "FIRST", "LAST"):
+        return error_response("type must be CENTER/CURSOR/FIRST/LAST", code="bad_request")
+    try:
+        bpy.ops.mesh.merge(type=merge_type)
+        return ok_response(result={"merge": True, "type": merge_type})
     except Exception as exc:
         return error_response(str(exc), code="bridge_error")

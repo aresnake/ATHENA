@@ -34,6 +34,10 @@ def test_tools_list_endpoint():
             "blender-mesh-delete",
             "blender-mesh-extrude",
             "blender-mesh-inset",
+            "blender-mesh-loop-cut",
+            "blender-mesh-bevel",
+            "blender-mesh-subdivide",
+            "blender-mesh-merge",
         }
         assert expected.issubset(names)
         for tool in tools:
