@@ -49,23 +49,21 @@ def _schedule_timer_once() -> None:
 
 def _execute_tool(tool: str, args: Dict[str, Any]) -> Dict[str, Any]:
     if tool == "blender-list-objects":
-        return executor.list_objects()
+        return executor.list_objects(args)
     if tool == "blender-add-cube":
-        name = args.get("name") if isinstance(args, dict) else None
-        size = args.get("size") if isinstance(args, dict) else None
-        if name is not None and not isinstance(name, str):
+        if not isinstance(args, dict):
+            return error_response("args must be object", code="bad_request")
+        if "name" in args and not isinstance(args.get("name"), str):
             return error_response("name must be a string", code="bad_request")
-        if size is not None and not isinstance(size, (int, float)):
+        if "size" in args and not isinstance(args.get("size"), (int, float)):
             return error_response("size must be a number", code="bad_request")
-        return executor.add_cube(name=name, size=size)
+        return executor.add_cube(args)
     if tool == "blender-move-object":
         name = args.get("name")
         location = args.get("location")
-        if not isinstance(name, str):
-            return error_response("name must be provided", code="bad_request")
-        if not isinstance(location, list) or len(location) != 3:
-            return error_response("location must be [x, y, z]", code="bad_request")
-        return executor.move_object(name, location)
+        if not isinstance(args, dict):
+            return error_response("args must be object", code="bad_request")
+        return executor.move_object(args)
     return error_response(f"Unknown tool '{tool}'", code="unknown_tool")
 
 
@@ -111,8 +109,8 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
             self._send_json(error_response("invalid json", code="bad_request"), status=400)
             return
-        tool = payload.get("tool")
-        args = payload.get("args", {})
+        tool = payload.get("tool") or payload.get("name")
+        args = payload.get("args", payload.get("arguments", {}))
         if not isinstance(tool, str):
             self._send_json(error_response("missing tool", code="bad_request"), status=400)
             return

@@ -13,18 +13,20 @@ def _require_bpy():
     return bpy
 
 
-def list_objects() -> Dict[str, Any]:
+def list_objects(args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     bpy = _require_bpy()
     names: List[str] = [obj.name for obj in bpy.data.objects]
     return ok_response(result={"objects": names, "count": len(names)})
 
 
-def add_cube(name: Optional[str] = None, size: Optional[float] = None) -> Dict[str, Any]:
+def add_cube(args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     bpy = _require_bpy()
     import bmesh  # type: ignore  # pragma: no cover - Blender runtime
 
-    cube_name = name or "Cube"
-    cube_size = float(size) if size is not None else 1.0
+    args = args or {}
+    cube_name = args.get("name") or "Cube"
+    size_val = args.get("size")
+    cube_size = float(size_val) if size_val is not None else 1.0
 
     try:
         final_name = cube_name
@@ -48,8 +50,26 @@ def add_cube(name: Optional[str] = None, size: Optional[float] = None) -> Dict[s
         return error_response(str(exc), code="bridge_error")
 
 
-def move_object(name: str, location: List[float]) -> Dict[str, Any]:
+def _extract_location(args: Dict[str, Any]) -> Optional[List[float]]:
+    if "location" in args and isinstance(args["location"], list) and len(args["location"]) == 3:
+        return args["location"]
+    coords = []
+    for key in ("x", "y", "z"):
+        if key in args:
+            coords.append(args[key])
+    if len(coords) == 3 and all(isinstance(v, (int, float)) for v in coords):
+        return [float(v) for v in coords]
+    return None
+
+
+def move_object(args: Dict[str, Any]) -> Dict[str, Any]:
     bpy = _require_bpy()
+    name = args.get("name") or args.get("object") or args.get("object_name")
+    if not isinstance(name, str):
+        return error_response("name must be provided", code="bad_request")
+    location = _extract_location(args)
+    if location is None:
+        return error_response("location must be [x, y, z]", code="bad_request")
     obj = bpy.data.objects.get(name)
     if obj is None:
         return error_response(f"Object '{name}' not found", code="not_found")

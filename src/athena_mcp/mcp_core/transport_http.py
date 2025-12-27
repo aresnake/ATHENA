@@ -54,7 +54,7 @@ class MCPHTTPRequestHandler(BaseHTTPRequestHandler):
             self._send_json(error_response(error or "invalid request", code="bad_request"), status=400)
             return
         name = payload.get("name")
-        args = payload.get("args", {})
+        args = payload.get("args", payload.get("arguments", {}))
         if not isinstance(name, str):
             self._send_json(error_response("missing tool name", code="bad_request"), status=400)
             return
