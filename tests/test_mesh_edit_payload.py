@@ -50,3 +50,30 @@ def test_mesh_extrude_http_payload(monkeypatch):
     finally:
         server.shutdown()
         thread.join(timeout=2)
+
+
+def test_select_loop_http_arguments(monkeypatch):
+    captured = {}
+
+    def _mock_bridge(tool, args):
+        captured["tool"] = tool
+        captured["args"] = args
+        return {"ok": True, "result": {"select_loop": True, **args}}
+
+    monkeypatch.setattr(registry, "_bridge_request", _mock_bridge)
+
+    server, thread = start_server()
+    host, port = server.server_address
+    try:
+        resp = requests.post(
+            f"http://{host}:{port}/tools/call",
+            json={"name": "blender-mesh-select-loop", "arguments": {"extend": True}},
+            timeout=2,
+        )
+        data = resp.json()
+        assert data["ok"] is True
+        assert captured["tool"] == "blender-mesh-select-loop"
+        assert captured["args"]["extend"] is True
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)

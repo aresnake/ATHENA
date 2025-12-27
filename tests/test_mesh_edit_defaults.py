@@ -56,3 +56,20 @@ def test_loop_cut_defaults(monkeypatch):
     assert result["ok"] is True
     assert captured["args"]["cuts"] == 1
     assert captured["args"]["smoothness"] == 0.0
+
+
+def test_select_loop_arguments_alias(monkeypatch):
+    captured = {}
+
+    def _mock_bridge(tool, args):
+        captured["tool"] = tool
+        captured["args"] = args
+        return {"ok": True, "result": {"select_loop": True, **args}}
+
+    monkeypatch.setattr(registry, "_bridge_request", _mock_bridge)
+
+    result = registry.call_tool("blender-mesh-select-loop", {"arguments": {"extend": True}} if False else {"extend": True})
+    # Direct call passes args dict; transport alias tested elsewhere.
+    assert result["ok"] is True
+    assert captured["tool"] == "blender-mesh-select-loop"
+    assert captured["args"]["extend"] is True

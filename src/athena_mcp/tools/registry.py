@@ -100,6 +100,55 @@ def _tool_blender_mesh_merge(args: JSONDict) -> JSONDict:
     return _call_bridge("blender-mesh-merge", {"type": args.get("type")})
 
 
+def _tool_blender_mesh_loop_cut(args: JSONDict) -> JSONDict:
+    return _call_bridge(
+        "blender-mesh-loop-cut",
+        {"cuts": args.get("cuts", 1), "smoothness": args.get("smoothness", 0.0)},
+    )
+
+
+def _tool_blender_mesh_bevel(args: JSONDict) -> JSONDict:
+    return _call_bridge(
+        "blender-mesh-bevel",
+        {"offset": args.get("offset", 0.02), "segments": args.get("segments", 1), "profile": args.get("profile", 0.5)},
+    )
+
+
+def _tool_blender_mesh_select_loop(args: JSONDict) -> JSONDict:
+    return _call_bridge("blender-mesh-select-loop", {"extend": bool(args.get("extend", False))})
+
+
+def _tool_blender_mesh_select_ring(args: JSONDict) -> JSONDict:
+    return _call_bridge("blender-mesh-select-ring", {"extend": bool(args.get("extend", False))})
+
+
+def _tool_blender_mesh_select_linked(args: JSONDict) -> JSONDict:
+    return _call_bridge("blender-mesh-select-linked", {"delimit": bool(args.get("delimit", False))})
+
+
+def _tool_blender_mesh_select_more(args: JSONDict) -> JSONDict:
+    return _call_bridge("blender-mesh-select-more", {})
+
+
+def _tool_blender_mesh_select_less(args: JSONDict) -> JSONDict:
+    return _call_bridge("blender-mesh-select-less", {})
+
+
+def _tool_blender_mesh_select_non_manifold(args: JSONDict) -> JSONDict:
+    return _call_bridge("blender-mesh-select-non-manifold", {"extend": bool(args.get("extend", False))})
+
+
+def _tool_blender_mesh_select_boundary(args: JSONDict) -> JSONDict:
+    return _call_bridge("blender-mesh-select-boundary", {"extend": bool(args.get("extend", False))})
+
+
+def _tool_blender_mesh_select_by_index(args: JSONDict) -> JSONDict:
+    return _call_bridge(
+        "blender-mesh-select-by-index",
+        {"element": args.get("element"), "indices": args.get("indices", []), "clear": bool(args.get("clear", True))},
+    )
+
+
 TOOLS: List[ToolDefinition] = [
     ToolDefinition(
         name="blender-list-objects",
@@ -190,6 +239,54 @@ TOOLS: List[ToolDefinition] = [
         description="Merge selection elements.",
         input_schema=mesh_edit.MERGE_SCHEMA,
         impl=_tool_blender_mesh_merge,
+    ),
+    ToolDefinition(
+        name="blender-mesh-select-loop",
+        description="Select a loop of mesh elements.",
+        input_schema=mesh_edit.SELECT_LOOP_SCHEMA,
+        impl=_tool_blender_mesh_select_loop,
+    ),
+    ToolDefinition(
+        name="blender-mesh-select-ring",
+        description="Select a ring of mesh elements.",
+        input_schema=mesh_edit.SELECT_RING_SCHEMA,
+        impl=_tool_blender_mesh_select_ring,
+    ),
+    ToolDefinition(
+        name="blender-mesh-select-linked",
+        description="Select linked elements.",
+        input_schema=mesh_edit.SELECT_LINKED_SCHEMA,
+        impl=_tool_blender_mesh_select_linked,
+    ),
+    ToolDefinition(
+        name="blender-mesh-select-more",
+        description="Grow selection.",
+        input_schema=mesh_edit.SELECT_MORE_SCHEMA,
+        impl=_tool_blender_mesh_select_more,
+    ),
+    ToolDefinition(
+        name="blender-mesh-select-less",
+        description="Shrink selection.",
+        input_schema=mesh_edit.SELECT_LESS_SCHEMA,
+        impl=_tool_blender_mesh_select_less,
+    ),
+    ToolDefinition(
+        name="blender-mesh-select-non-manifold",
+        description="Select non-manifold geometry.",
+        input_schema=mesh_edit.SELECT_NON_MANIFOLD_SCHEMA,
+        impl=_tool_blender_mesh_select_non_manifold,
+    ),
+    ToolDefinition(
+        name="blender-mesh-select-boundary",
+        description="Select mesh boundary loop.",
+        input_schema=mesh_edit.SELECT_BOUNDARY_SCHEMA,
+        impl=_tool_blender_mesh_select_boundary,
+    ),
+    ToolDefinition(
+        name="blender-mesh-select-by-index",
+        description="Select elements by indices.",
+        input_schema=mesh_edit.SELECT_BY_INDEX_SCHEMA,
+        impl=_tool_blender_mesh_select_by_index,
     ),
 ]
 

@@ -16,9 +16,9 @@ def _require_bpy():
 def _active_mesh(bpy):
     obj = bpy.context.view_layer.objects.active
     if obj is None:
-        return None, error_response("No active object", code="bad_request")
+        return None, error_response("No active object", code="no_active_object")
     if obj.type != "MESH":
-        return None, error_response("Active object is not a mesh", code="bad_request")
+        return None, error_response("Active object is not a mesh", code="not_mesh")
     return obj, None
 
 
@@ -27,7 +27,7 @@ def _ensure_mode(bpy, mode: str):
         bpy.ops.object.mode_set(mode=mode)
         return None
     except Exception as exc:
-        return error_response(str(exc), code="bridge_error")
+        return error_response(str(exc), code="invalid_context")
 
 
 def list_objects(args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -94,7 +94,7 @@ def move_object(args: Dict[str, Any]) -> Dict[str, Any]:
         obj.location = location
         return ok_response(result={"name": obj.name, "location": list(obj.location)})
     except Exception as exc:
-        return error_response(str(exc), code="bridge_error")
+        return error_response(str(exc), code="internal_error")
 
 
 def set_mode(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -163,7 +163,7 @@ def select_all(args: Dict[str, Any]) -> Dict[str, Any]:
         bpy.ops.mesh.select_all(action="SELECT")
         return ok_response(result={"selected": "all"})
     except Exception as exc:
-        return error_response(str(exc), code="bridge_error")
+        return error_response(str(exc), code="internal_error")
 
 
 def select_none(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -175,7 +175,7 @@ def select_none(args: Dict[str, Any]) -> Dict[str, Any]:
         bpy.ops.mesh.select_all(action="DESELECT")
         return ok_response(result={"selected": "none"})
     except Exception as exc:
-        return error_response(str(exc), code="bridge_error")
+        return error_response(str(exc), code="internal_error")
 
 
 def select_invert(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -187,7 +187,7 @@ def select_invert(args: Dict[str, Any]) -> Dict[str, Any]:
         bpy.ops.mesh.select_all(action="INVERT")
         return ok_response(result={"selected": "invert"})
     except Exception as exc:
-        return error_response(str(exc), code="bridge_error")
+        return error_response(str(exc), code="internal_error")
 
 
 def mesh_delete(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -202,7 +202,7 @@ def mesh_delete(args: Dict[str, Any]) -> Dict[str, Any]:
         bpy.ops.mesh.delete(type=delete_type)
         return ok_response(result={"deleted": True, "type": delete_type})
     except Exception as exc:
-        return error_response(str(exc), code="bridge_error")
+        return error_response(str(exc), code="internal_error")
 
 
 def mesh_extrude(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -215,7 +215,7 @@ def mesh_extrude(args: Dict[str, Any]) -> Dict[str, Any]:
         bpy.ops.mesh.extrude_region_move(TRANSFORM_OT_translate={"value": delta})
         return ok_response(result={"extruded": True, "delta": list(delta)})
     except Exception as exc:
-        return error_response(str(exc), code="bridge_error")
+        return error_response(str(exc), code="internal_error")
 
 
 def mesh_inset(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -229,7 +229,7 @@ def mesh_inset(args: Dict[str, Any]) -> Dict[str, Any]:
         bpy.ops.mesh.inset(thickness=thickness, depth=depth)
         return ok_response(result={"inset": True, "thickness": thickness, "depth": depth})
     except Exception as exc:
-        return error_response(str(exc), code="bridge_error")
+        return error_response(str(exc), code="internal_error")
 
 
 def mesh_loop_cut(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -246,7 +246,7 @@ def mesh_loop_cut(args: Dict[str, Any]) -> Dict[str, Any]:
             bpy.ops.mesh.loopcut(number_cuts=cuts, smoothness=smoothness)
         return ok_response(result={"loop_cut": True, "cuts": cuts})
     except Exception as exc:
-        return error_response(str(exc), code="bridge_error")
+        return error_response(str(exc), code="internal_error")
 
 
 def mesh_bevel(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -261,7 +261,7 @@ def mesh_bevel(args: Dict[str, Any]) -> Dict[str, Any]:
         bpy.ops.mesh.bevel(offset=offset, segments=segments, profile=profile)
         return ok_response(result={"bevel": True, "offset": offset, "segments": segments, "profile": profile})
     except Exception as exc:
-        return error_response(str(exc), code="bridge_error")
+        return error_response(str(exc), code="internal_error")
 
 
 def mesh_subdivide(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -275,7 +275,7 @@ def mesh_subdivide(args: Dict[str, Any]) -> Dict[str, Any]:
         bpy.ops.mesh.subdivide(number_cuts=cuts, smoothness=smooth)
         return ok_response(result={"subdivide": True, "cuts": cuts, "smooth": smooth})
     except Exception as exc:
-        return error_response(str(exc), code="bridge_error")
+        return error_response(str(exc), code="internal_error")
 
 
 def mesh_merge(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -290,4 +290,141 @@ def mesh_merge(args: Dict[str, Any]) -> Dict[str, Any]:
         bpy.ops.mesh.merge(type=merge_type)
         return ok_response(result={"merge": True, "type": merge_type})
     except Exception as exc:
-        return error_response(str(exc), code="bridge_error")
+        return error_response(str(exc), code="internal_error")
+
+
+def mesh_select_loop(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    _, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    extend = bool(args.get("extend", False))
+    try:
+        bpy.ops.mesh.loop_select(extend=extend)
+        return ok_response(result={"select_loop": True, "extend": extend})
+    except Exception as exc:
+        return error_response(str(exc), code="internal_error")
+
+
+def mesh_select_ring(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    _, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    extend = bool(args.get("extend", False))
+    try:
+        bpy.ops.mesh.ring_select(extend=extend)
+        return ok_response(result={"select_ring": True, "extend": extend})
+    except Exception as exc:
+        return error_response(str(exc), code="internal_error")
+
+
+def mesh_select_linked(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    _, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    try:
+        bpy.ops.mesh.select_linked()
+        return ok_response(result={"select_linked": True})
+    except Exception as exc:
+        return error_response(str(exc), code="internal_error")
+
+
+def mesh_select_more(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    _, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    try:
+        bpy.ops.mesh.select_more()
+        return ok_response(result={"select_more": True})
+    except Exception as exc:
+        return error_response(str(exc), code="internal_error")
+
+
+def mesh_select_less(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    _, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    try:
+        bpy.ops.mesh.select_less()
+        return ok_response(result={"select_less": True})
+    except Exception as exc:
+        return error_response(str(exc), code="internal_error")
+
+
+def mesh_select_non_manifold(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    _, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    extend = bool(args.get("extend", False))
+    try:
+        bpy.ops.mesh.select_non_manifold(extend=extend)
+        return ok_response(result={"select_non_manifold": True, "extend": extend})
+    except Exception as exc:
+        return error_response(str(exc), code="internal_error")
+
+
+def mesh_select_boundary(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    _, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    extend = bool(args.get("extend", False))
+    try:
+        if hasattr(bpy.ops.mesh, "select_boundary_loop"):
+            bpy.ops.mesh.select_boundary_loop()
+            return ok_response(result={"select_boundary": True, "extend": extend})
+        return error_response("boundary selection not supported", code="not_supported")
+    except Exception as exc:
+        return error_response(str(exc), code="internal_error")
+
+
+def mesh_select_by_index(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    obj, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    element = args.get("element")
+    indices = args.get("indices", [])
+    clear_sel = bool(args.get("clear", True))
+
+    if element not in ("VERT", "EDGE", "FACE"):
+        return error_response("element must be VERT/EDGE/FACE", code="bad_request")
+    if not isinstance(indices, list) or not all(isinstance(i, int) for i in indices):
+        return error_response("indices must be a list of integers", code="bad_request")
+
+    bm = bmesh.from_edit_mesh(obj.data)
+    try:
+        if clear_sel:
+            for v in bm.verts:
+                v.select_set(False)
+            for e in bm.edges:
+                e.select_set(False)
+            for f in bm.faces:
+                f.select_set(False)
+        count = 0
+        if element == "VERT":
+            for idx in indices:
+                if 0 <= idx < len(bm.verts):
+                    bm.verts[idx].select_set(True)
+                    count += 1
+        elif element == "EDGE":
+            for idx in indices:
+                if 0 <= idx < len(bm.edges):
+                    bm.edges[idx].select_set(True)
+                    count += 1
+        elif element == "FACE":
+            for idx in indices:
+                if 0 <= idx < len(bm.faces):
+                    bm.faces[idx].select_set(True)
+                    count += 1
+        bmesh.update_edit_mesh(obj.data)
+        return ok_response(result={"select_by_index": True, "element": element, "count": count})
+    except Exception as exc:
+        return error_response(str(exc), code="internal_error")

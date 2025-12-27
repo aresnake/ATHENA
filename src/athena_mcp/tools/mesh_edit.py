@@ -56,7 +56,7 @@ MESH_INSET_SCHEMA: JSONDict = {
     "type": "object",
     "properties": {
         "thickness": {"type": "number"},
-        "depth": {"type": "number"},
+        "depth": {"type": "number", "default": 0.0},
     },
     "required": ["thickness"],
     "additionalProperties": False,
@@ -65,8 +65,8 @@ MESH_INSET_SCHEMA: JSONDict = {
 LOOP_CUT_SCHEMA: JSONDict = {
     "type": "object",
     "properties": {
-        "cuts": {"type": "integer", "minimum": 1},
-        "smoothness": {"type": "number"},
+        "cuts": {"type": "integer", "minimum": 1, "default": 1},
+        "smoothness": {"type": "number", "default": 0.0},
     },
     "additionalProperties": False,
 }
@@ -74,9 +74,9 @@ LOOP_CUT_SCHEMA: JSONDict = {
 BEVEL_SCHEMA: JSONDict = {
     "type": "object",
     "properties": {
-        "offset": {"type": "number"},
-        "segments": {"type": "integer", "minimum": 1},
-        "profile": {"type": "number"},
+        "offset": {"type": "number", "default": 0.02},
+        "segments": {"type": "integer", "minimum": 1, "default": 1},
+        "profile": {"type": "number", "default": 0.5},
     },
     "additionalProperties": False,
 }
@@ -84,8 +84,8 @@ BEVEL_SCHEMA: JSONDict = {
 SUBDIVIDE_SCHEMA: JSONDict = {
     "type": "object",
     "properties": {
-        "cuts": {"type": "integer", "minimum": 1},
-        "smooth": {"type": "number"},
+        "cuts": {"type": "integer", "minimum": 1, "default": 1},
+        "smooth": {"type": "number", "default": 0.0},
     },
     "additionalProperties": False,
 }
@@ -96,5 +96,53 @@ MERGE_SCHEMA: JSONDict = {
         "type": {"type": "string", "enum": ["CENTER", "CURSOR", "FIRST", "LAST"]},
     },
     "required": ["type"],
+    "additionalProperties": False,
+}
+
+SELECT_LOOP_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "extend": {"type": "boolean", "default": False},
+    },
+    "additionalProperties": False,
+}
+
+SELECT_RING_SCHEMA = SELECT_LOOP_SCHEMA
+
+SELECT_LINKED_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "delimit": {"type": "boolean", "default": False},
+    },
+    "additionalProperties": False,
+}
+
+SELECT_MORE_SCHEMA = SELECT_ALL_SCHEMA
+SELECT_LESS_SCHEMA = SELECT_ALL_SCHEMA
+
+SELECT_NON_MANIFOLD_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "extend": {"type": "boolean", "default": False},
+    },
+    "additionalProperties": False,
+}
+
+SELECT_BOUNDARY_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "extend": {"type": "boolean", "default": False},
+    },
+    "additionalProperties": False,
+}
+
+SELECT_BY_INDEX_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "element": {"type": "string", "enum": ["VERT", "EDGE", "FACE"]},
+        "indices": {"type": "array", "items": {"type": "integer"}},
+        "clear": {"type": "boolean", "default": True},
+    },
+    "required": ["element", "indices"],
     "additionalProperties": False,
 }

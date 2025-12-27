@@ -38,6 +38,14 @@ def test_tools_list_endpoint():
             "blender-mesh-bevel",
             "blender-mesh-subdivide",
             "blender-mesh-merge",
+            "blender-mesh-select-loop",
+            "blender-mesh-select-ring",
+            "blender-mesh-select-linked",
+            "blender-mesh-select-more",
+            "blender-mesh-select-less",
+            "blender-mesh-select-non-manifold",
+            "blender-mesh-select-boundary",
+            "blender-mesh-select-by-index",
         }
         assert expected.issubset(names)
         for tool in tools:

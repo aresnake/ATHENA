@@ -40,6 +40,12 @@ Invoke-RestMethod -Method Post http://127.0.0.1:9000/tools/call -Body '{"name":"
 7. Extrude up: `{"name":"blender-mesh-extrude","args":{"x":0,"y":0,"z":1}}`
 8. Return to object mode: `{"name":"blender-set-mode","args":{"mode":"OBJECT","name":"Cube"}}`
 
+## Pack 03 selection (example chain)
+- Set edit mode: `{"name":"blender-set-mode","args":{"mode":"EDIT","name":"Cube"}}`
+- Switch to edge selection: `{"name":"blender-set-selection-mode","args":{"mode":"EDGE"}}`
+- Select loop (extend): `{"name":"blender-mesh-select-loop","args":{"extend":true}}`
+- Bevel or extrude after selection as desired.
+
 ## Tests
 - Run `python -m pytest` (no Blender required). Tests cover tool listing, tool call routing with a mocked bridge, and an HTTP server health smoke test.
 

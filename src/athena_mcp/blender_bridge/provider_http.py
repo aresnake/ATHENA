@@ -104,6 +104,24 @@ def _execute_tool(tool: str, args: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(args, dict):
             return error_response("args must be object", code="bad_request")
         return executor.mesh_merge(args)
+    if tool == "blender-mesh-select-loop":
+        return executor.mesh_select_loop(args)
+    if tool == "blender-mesh-select-ring":
+        return executor.mesh_select_ring(args)
+    if tool == "blender-mesh-select-linked":
+        return executor.mesh_select_linked(args)
+    if tool == "blender-mesh-select-more":
+        return executor.mesh_select_more(args)
+    if tool == "blender-mesh-select-less":
+        return executor.mesh_select_less(args)
+    if tool == "blender-mesh-select-non-manifold":
+        return executor.mesh_select_non_manifold(args)
+    if tool == "blender-mesh-select-boundary":
+        return executor.mesh_select_boundary(args)
+    if tool == "blender-mesh-select-by-index":
+        if not isinstance(args, dict):
+            return error_response("args must be object", code="bad_request")
+        return executor.mesh_select_by_index(args)
     return error_response(f"Unknown tool '{tool}'", code="unknown_tool")
 
 
