@@ -51,6 +51,11 @@ def test_tools_list_endpoint():
             "blender-mesh-delete-by-index",
             "blender-capabilities",
             "blender-validate-tool",
+            "blender-mesh-translate-selection",
+            "blender-mesh-scale-selection",
+            "blender-mesh-extrude-selection",
+            "blender-mesh-inset-selection",
+            "blender-mesh-select-by-normal",
         }
         assert expected.issubset(names)
         for tool in tools:

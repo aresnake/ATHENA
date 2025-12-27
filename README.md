@@ -51,6 +51,13 @@ Invoke-RestMethod -Method Post http://127.0.0.1:9000/tools/call -Body '{"name":"
 - VIEW3D-REQUIRED tools rely on Blender operators that may need a 3D View context (loop/ring select). Use `blender-capabilities` / `blender-validate-tool` to check availability.
 - Example (SAFE-FIRST): set edit mode -> set-selection to verts -> bisect-plane -> delete-by-index -> continue modeling.
 
+## Pack 05 SAFE-FIRST (selection transforms)
+- Translate selection: `{"name":"blender-mesh-translate-selection","args":{"dx":1,"dy":0,"dz":0}}`
+- Scale selection (auto-pivot): `{"name":"blender-mesh-scale-selection","args":{"sx":1,"sy":2,"sz":1}}`
+- Extrude selection: `{"name":"blender-mesh-extrude-selection","args":{"dx":0,"dy":0,"dz":1}}`
+- Inset selection: `{"name":"blender-mesh-inset-selection","args":{"thickness":0.05,"depth":0.0}}`
+- Select by normal: `{"name":"blender-mesh-select-by-normal","args":{"axis":"Z","threshold":0.9}}`
+
 ## Tests
 - Run `python -m pytest` (no Blender required). Tests cover tool listing, tool call routing with a mocked bridge, and an HTTP server health smoke test.
 

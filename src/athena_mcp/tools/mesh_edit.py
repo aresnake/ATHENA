@@ -194,3 +194,58 @@ SAFE_DELETE_BY_INDEX_SCHEMA: JSONDict = {
     "required": ["element", "indices"],
     "additionalProperties": False,
 }
+
+TRANSLATE_SELECTION_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "dx": {"type": "number"},
+        "dy": {"type": "number"},
+        "dz": {"type": "number"},
+    },
+    "required": ["dx", "dy", "dz"],
+    "additionalProperties": False,
+}
+
+SCALE_SELECTION_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "sx": {"type": "number"},
+        "sy": {"type": "number"},
+        "sz": {"type": "number"},
+        "pivot": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+    },
+    "required": ["sx", "sy", "sz"],
+    "additionalProperties": False,
+}
+
+EXTRUDE_SELECTION_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "dx": {"type": "number"},
+        "dy": {"type": "number"},
+        "dz": {"type": "number"},
+    },
+    "required": ["dx", "dy", "dz"],
+    "additionalProperties": False,
+}
+
+INSET_SELECTION_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "thickness": {"type": "number", "default": 0.05},
+        "depth": {"type": "number", "default": 0.0},
+    },
+    "additionalProperties": False,
+}
+
+SELECT_BY_NORMAL_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "axis": {"type": "string", "enum": ["X", "Y", "Z"]},
+        "sign": {"type": "integer", "enum": [1, -1], "default": 1},
+        "threshold": {"type": "number", "default": 0.9},
+        "extend": {"type": "boolean", "default": False},
+    },
+    "required": ["axis"],
+    "additionalProperties": False,
+}

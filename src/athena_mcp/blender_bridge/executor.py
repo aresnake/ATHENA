@@ -611,6 +611,149 @@ def mesh_delete_by_index(args: Dict[str, Any]) -> Dict[str, Any]:
         return error_response(str(exc), code="internal_error")
 
 
+def mesh_translate_selection(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    obj, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    dx, dy, dz = args.get("dx"), args.get("dy"), args.get("dz")
+    if not all(isinstance(v, (int, float)) for v in (dx, dy, dz)):
+        return error_response("dx, dy, dz required", code="bad_request")
+    delta = (float(dx), float(dy), float(dz))
+    bm = bmesh.from_edit_mesh(obj.data)
+    try:
+        verts = [v for v in bm.verts if v.select]
+        if not verts:
+            return error_response("No selection", code="no_selection")
+        for v in verts:
+            v.co.x += delta[0]
+            v.co.y += delta[1]
+            v.co.z += delta[2]
+        bmesh.update_edit_mesh(obj.data)
+        return ok_response(result={"translated": True, "delta": list(delta), "selected_verts": len(verts)})
+    except Exception as exc:
+        return error_response(str(exc), code="internal_error")
+
+
+def mesh_scale_selection(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    obj, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    sx, sy, sz = args.get("sx"), args.get("sy"), args.get("sz")
+    if not all(isinstance(v, (int, float)) for v in (sx, sy, sz)):
+        return error_response("sx, sy, sz required", code="bad_request")
+    bm = bmesh.from_edit_mesh(obj.data)
+    try:
+        verts = [v for v in bm.verts if v.select]
+        if not verts:
+            return error_response("No selection", code="no_selection")
+        if isinstance(args.get("pivot"), list) and len(args.get("pivot")) == 3:
+            pivot = [float(x) for x in args["pivot"]]
+        else:
+            pivot = [sum(v.co[i] for v in verts) / len(verts) for i in range(3)]
+        for v in verts:
+            for i, scale in enumerate((float(sx), float(sy), float(sz))):
+                v.co[i] = pivot[i] + (v.co[i] - pivot[i]) * scale
+        bmesh.update_edit_mesh(obj.data)
+        return ok_response(
+            result={"scaled": True, "scale": [float(sx), float(sy), float(sz)], "pivot": pivot, "selected_verts": len(verts)}
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="internal_error")
+
+
+def mesh_extrude_selection(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    obj, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    dx, dy, dz = args.get("dx"), args.get("dy"), args.get("dz")
+    if not all(isinstance(v, (int, float)) for v in (dx, dy, dz)):
+        return error_response("dx, dy, dz required", code="bad_request")
+    delta = (float(dx), float(dy), float(dz))
+    bm = bmesh.from_edit_mesh(obj.data)
+    try:
+        faces = [f for f in bm.faces if f.select]
+        if not faces:
+            return error_response("Unsupported selection (no faces)", code="unsupported_selection")
+        res = bmesh.ops.extrude_face_region(bm, geom=faces)
+        verts = [ele for ele in res["geom"] if isinstance(ele, bmesh.types.BMVert)]
+        for v in verts:
+            v.co.x += delta[0]
+            v.co.y += delta[1]
+            v.co.z += delta[2]
+        bmesh.update_edit_mesh(obj.data)
+        return ok_response(result={"extruded": True, "delta": list(delta)})
+    except Exception as exc:
+        return error_response(str(exc), code="internal_error")
+
+
+def mesh_inset_selection(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    obj, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    thickness = float(args.get("thickness", 0.05))
+    depth = float(args.get("depth", 0.0))
+    bm = bmesh.from_edit_mesh(obj.data)
+    try:
+        faces = [f for f in bm.faces if f.select]
+        if not faces:
+            return error_response("No faces selected", code="no_selection")
+        res = bmesh.ops.inset_region(bm, faces=faces, thickness=thickness, depth=0.0)
+        new_faces = [f for f in res.get("faces", []) if isinstance(f, bmesh.types.BMFace)]
+        if depth != 0.0:
+            for f in new_faces:
+                for v in f.verts:
+                    v.co += f.normal.normalized() * depth
+        bmesh.update_edit_mesh(obj.data)
+        return ok_response(result={"inset": True, "thickness": thickness, "depth": depth})
+    except Exception as exc:
+        return error_response(str(exc), code="internal_error")
+
+
+def mesh_select_by_normal(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    obj, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    axis = args.get("axis")
+    if axis not in ("X", "Y", "Z"):
+        return error_response("axis must be X/Y/Z", code="bad_request")
+    sign = args.get("sign", 1)
+    threshold = float(args.get("threshold", 0.9))
+    extend = bool(args.get("extend", False))
+    bm = bmesh.from_edit_mesh(obj.data)
+    try:
+        if not extend:
+            for f in bm.faces:
+                f.select_set(False)
+        target = {"X": (1, 0, 0), "Y": (0, 1, 0), "Z": (0, 0, 1)}[axis]
+        count = 0
+        for f in bm.faces:
+            dot = f.normal.x * target[0] + f.normal.y * target[1] + f.normal.z * target[2]
+            if sign < 0:
+                dot *= -1
+            if dot >= threshold:
+                f.select_set(True)
+                count += 1
+        bmesh.update_edit_mesh(obj.data)
+        return ok_response(result={"selected": True, "element": "FACE", "count": count, "axis": axis, "sign": sign, "threshold": threshold})
+    except Exception as exc:
+        return error_response(str(exc), code="internal_error")
+
+
 def capabilities(args: Dict[str, Any] | None = None) -> Dict[str, Any]:
     bpy = _require_bpy()
 

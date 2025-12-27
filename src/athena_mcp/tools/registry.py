@@ -190,6 +190,50 @@ def _tool_blender_mesh_delete_by_index(args: JSONDict) -> JSONDict:
     )
 
 
+def _tool_blender_mesh_translate_selection(args: JSONDict) -> JSONDict:
+    return _call_bridge(
+        "blender-mesh-translate-selection",
+        {"dx": args.get("dx"), "dy": args.get("dy"), "dz": args.get("dz")},
+    )
+
+
+def _tool_blender_mesh_scale_selection(args: JSONDict) -> JSONDict:
+    payload = {
+        "sx": args.get("sx"),
+        "sy": args.get("sy"),
+        "sz": args.get("sz"),
+    }
+    if "pivot" in args:
+        payload["pivot"] = args.get("pivot")
+    return _call_bridge("blender-mesh-scale-selection", payload)
+
+
+def _tool_blender_mesh_extrude_selection(args: JSONDict) -> JSONDict:
+    return _call_bridge(
+        "blender-mesh-extrude-selection",
+        {"dx": args.get("dx"), "dy": args.get("dy"), "dz": args.get("dz")},
+    )
+
+
+def _tool_blender_mesh_inset_selection(args: JSONDict) -> JSONDict:
+    return _call_bridge(
+        "blender-mesh-inset-selection",
+        {"thickness": args.get("thickness", 0.05), "depth": args.get("depth", 0.0)},
+    )
+
+
+def _tool_blender_mesh_select_by_normal(args: JSONDict) -> JSONDict:
+    return _call_bridge(
+        "blender-mesh-select-by-normal",
+        {
+            "axis": args.get("axis"),
+            "sign": args.get("sign", 1),
+            "threshold": args.get("threshold", 0.9),
+            "extend": bool(args.get("extend", False)),
+        },
+    )
+
+
 TOOLS: List[ToolDefinition] = [
     ToolDefinition(
         name="blender-list-objects",
@@ -358,6 +402,36 @@ TOOLS: List[ToolDefinition] = [
         description="Data-first delete elements by indices.",
         input_schema=mesh_edit.SAFE_DELETE_BY_INDEX_SCHEMA,
         impl=_tool_blender_mesh_delete_by_index,
+    ),
+    ToolDefinition(
+        name="blender-mesh-translate-selection",
+        description="Translate selected vertices via bmesh (SAFE-FIRST).",
+        input_schema=mesh_edit.TRANSLATE_SELECTION_SCHEMA,
+        impl=_tool_blender_mesh_translate_selection,
+    ),
+    ToolDefinition(
+        name="blender-mesh-scale-selection",
+        description="Scale selected vertices via bmesh (SAFE-FIRST).",
+        input_schema=mesh_edit.SCALE_SELECTION_SCHEMA,
+        impl=_tool_blender_mesh_scale_selection,
+    ),
+    ToolDefinition(
+        name="blender-mesh-extrude-selection",
+        description="Extrude selected geometry via bmesh (SAFE-FIRST).",
+        input_schema=mesh_edit.EXTRUDE_SELECTION_SCHEMA,
+        impl=_tool_blender_mesh_extrude_selection,
+    ),
+    ToolDefinition(
+        name="blender-mesh-inset-selection",
+        description="Inset selected faces via bmesh (SAFE-FIRST).",
+        input_schema=mesh_edit.INSET_SELECTION_SCHEMA,
+        impl=_tool_blender_mesh_inset_selection,
+    ),
+    ToolDefinition(
+        name="blender-mesh-select-by-normal",
+        description="Select faces by normal direction via bmesh (SAFE-FIRST).",
+        input_schema=mesh_edit.SELECT_BY_NORMAL_SCHEMA,
+        impl=_tool_blender_mesh_select_by_normal,
     ),
 ]
 

@@ -140,6 +140,26 @@ def _execute_tool(tool: str, args: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(args, dict):
             return error_response("args must be object", code="bad_request")
         return executor.mesh_delete_by_index(args)
+    if tool == "blender-mesh-translate-selection":
+        if not isinstance(args, dict):
+            return error_response("args must be object", code="bad_request")
+        return executor.mesh_translate_selection(args)
+    if tool == "blender-mesh-scale-selection":
+        if not isinstance(args, dict):
+            return error_response("args must be object", code="bad_request")
+        return executor.mesh_scale_selection(args)
+    if tool == "blender-mesh-extrude-selection":
+        if not isinstance(args, dict):
+            return error_response("args must be object", code="bad_request")
+        return executor.mesh_extrude_selection(args)
+    if tool == "blender-mesh-inset-selection":
+        if not isinstance(args, dict):
+            return error_response("args must be object", code="bad_request")
+        return executor.mesh_inset_selection(args)
+    if tool == "blender-mesh-select-by-normal":
+        if not isinstance(args, dict):
+            return error_response("args must be object", code="bad_request")
+        return executor.mesh_select_by_normal(args)
     return error_response(f"Unknown tool '{tool}'", code="unknown_tool")
 
 
