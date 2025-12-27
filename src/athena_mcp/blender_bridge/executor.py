@@ -245,7 +245,20 @@ def mesh_loop_cut(args: Dict[str, Any]) -> Dict[str, Any]:
         else:
             bpy.ops.mesh.loopcut(number_cuts=cuts, smoothness=smoothness)
         return ok_response(result={"loop_cut": True, "cuts": cuts})
+    except AttributeError as exc:
+        return error_response(
+            "Loop cut not supported in this context",
+            code="not_supported",
+            details={"reason": str(exc), "tool": "blender-mesh-loop-cut", "op": "mesh.loopcut", "hint": "Requires View3D context or unavailable in this Blender build."},
+        )
     except Exception as exc:
+        msg = str(exc)
+        if "view3d" in msg.lower() or "context" in msg.lower():
+            return error_response(
+                "Loop cut not supported in this context",
+                code="not_supported",
+                details={"reason": msg, "tool": "blender-mesh-loop-cut", "op": "mesh.loopcut", "hint": "Requires View3D context or unavailable in this Blender build."},
+            )
         return error_response(str(exc), code="internal_error")
 
 
@@ -302,7 +315,20 @@ def mesh_select_loop(args: Dict[str, Any]) -> Dict[str, Any]:
     try:
         bpy.ops.mesh.loop_select(extend=extend)
         return ok_response(result={"select_loop": True, "extend": extend})
+    except AttributeError as exc:
+        return error_response(
+            "Loop select not supported",
+            code="not_supported",
+            details={"reason": str(exc), "tool": "blender-mesh-select-loop", "op": "mesh.loop_select", "hint": "Requires View3D context or unavailable in this Blender build."},
+        )
     except Exception as exc:
+        msg = str(exc)
+        if "view3d" in msg.lower() or "context" in msg.lower():
+            return error_response(
+                "Loop select not supported in this context",
+                code="not_supported",
+                details={"reason": msg, "tool": "blender-mesh-select-loop", "op": "mesh.loop_select", "hint": "Requires View3D context or unavailable in this Blender build."},
+            )
         return error_response(str(exc), code="internal_error")
 
 
@@ -315,7 +341,20 @@ def mesh_select_ring(args: Dict[str, Any]) -> Dict[str, Any]:
     try:
         bpy.ops.mesh.ring_select(extend=extend)
         return ok_response(result={"select_ring": True, "extend": extend})
+    except AttributeError as exc:
+        return error_response(
+            "Ring select not supported",
+            code="not_supported",
+            details={"reason": str(exc), "tool": "blender-mesh-select-ring", "op": "mesh.ring_select", "hint": "Requires View3D context or unavailable in this Blender build."},
+        )
     except Exception as exc:
+        msg = str(exc)
+        if "view3d" in msg.lower() or "context" in msg.lower():
+            return error_response(
+                "Ring select not supported in this context",
+                code="not_supported",
+                details={"reason": msg, "tool": "blender-mesh-select-ring", "op": "mesh.ring_select", "hint": "Requires View3D context or unavailable in this Blender build."},
+            )
         return error_response(str(exc), code="internal_error")
 
 
@@ -328,6 +367,13 @@ def mesh_select_linked(args: Dict[str, Any]) -> Dict[str, Any]:
         bpy.ops.mesh.select_linked()
         return ok_response(result={"select_linked": True})
     except Exception as exc:
+        msg = str(exc)
+        if "view3d" in msg.lower() or "context" in msg.lower():
+            return error_response(
+                "Select linked not supported in this context",
+                code="not_supported",
+                details={"reason": msg, "tool": "blender-mesh-select-linked", "op": "mesh.select_linked", "hint": "Requires View3D context or unavailable in this Blender build."},
+            )
         return error_response(str(exc), code="internal_error")
 
 
@@ -365,6 +411,13 @@ def mesh_select_non_manifold(args: Dict[str, Any]) -> Dict[str, Any]:
         bpy.ops.mesh.select_non_manifold(extend=extend)
         return ok_response(result={"select_non_manifold": True, "extend": extend})
     except Exception as exc:
+        msg = str(exc)
+        if "view3d" in msg.lower() or "context" in msg.lower():
+            return error_response(
+                "Select non-manifold not supported in this context",
+                code="not_supported",
+                details={"reason": msg, "tool": "blender-mesh-select-non-manifold", "op": "mesh.select_non_manifold", "hint": "Requires View3D context or unavailable in this Blender build."},
+            )
         return error_response(str(exc), code="internal_error")
 
 
@@ -380,6 +433,13 @@ def mesh_select_boundary(args: Dict[str, Any]) -> Dict[str, Any]:
             return ok_response(result={"select_boundary": True, "extend": extend})
         return error_response("boundary selection not supported", code="not_supported")
     except Exception as exc:
+        msg = str(exc)
+        if "view3d" in msg.lower() or "context" in msg.lower():
+            return error_response(
+                "Boundary select not supported in this context",
+                code="not_supported",
+                details={"reason": msg, "tool": "blender-mesh-select-boundary", "op": "mesh.select_boundary_loop", "hint": "Requires View3D context or unavailable in this Blender build."},
+            )
         return error_response(str(exc), code="internal_error")
 
 

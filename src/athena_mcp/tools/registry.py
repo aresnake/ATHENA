@@ -149,6 +149,14 @@ def _tool_blender_mesh_select_by_index(args: JSONDict) -> JSONDict:
     )
 
 
+def _tool_blender_capabilities(args: JSONDict) -> JSONDict:
+    return _call_bridge("blender-capabilities", {})
+
+
+def _tool_blender_validate_tool(args: JSONDict) -> JSONDict:
+    return _call_bridge("blender-validate-tool", {"name": args.get("name")})
+
+
 TOOLS: List[ToolDefinition] = [
     ToolDefinition(
         name="blender-list-objects",
@@ -287,6 +295,18 @@ TOOLS: List[ToolDefinition] = [
         description="Select elements by indices.",
         input_schema=mesh_edit.SELECT_BY_INDEX_SCHEMA,
         impl=_tool_blender_mesh_select_by_index,
+    ),
+    ToolDefinition(
+        name="blender-capabilities",
+        description="Report Blender capabilities and operator availability.",
+        input_schema=mesh_edit.CAPABILITIES_SCHEMA,
+        impl=_tool_blender_capabilities,
+    ),
+    ToolDefinition(
+        name="blender-validate-tool",
+        description="Validate a tool name and classify execution requirements.",
+        input_schema=mesh_edit.VALIDATE_TOOL_SCHEMA,
+        impl=_tool_blender_validate_tool,
     ),
 ]
 

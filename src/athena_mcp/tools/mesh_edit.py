@@ -146,3 +146,18 @@ SELECT_BY_INDEX_SCHEMA: JSONDict = {
     "required": ["element", "indices"],
     "additionalProperties": False,
 }
+
+CAPABILITIES_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": False,
+}
+
+VALIDATE_TOOL_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+    },
+    "required": ["name"],
+    "additionalProperties": False,
+}
