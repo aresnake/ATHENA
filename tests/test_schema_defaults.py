@@ -32,3 +32,22 @@ def test_duplicate_selection_defaults():
     assert props["dx"]["default"] == 0.0
     assert props["dy"]["default"] == 0.0
     assert props["dz"]["default"] == 0.0
+
+
+def test_scene_snapshot_defaults():
+    tools = {t.name: t for t in registry.TOOLS}
+    schema = tools["blender-scene-snapshot"].input_schema
+    props = schema.get("properties", {})
+    assert props["include_mesh_stats"]["default"] is True
+    assert props["max_objects"]["default"] == 200
+    assert props["max_materials_per_object"]["default"] == 32
+    assert props["max_items_per_list"]["default"] == 5000
+
+
+def test_object_snapshot_defaults():
+    tools = {t.name: t for t in registry.TOOLS}
+    schema = tools["blender-object-snapshot"].input_schema
+    props = schema.get("properties", {})
+    assert props["include_materials"]["default"] is True
+    assert props["include_modifiers"]["default"] is True
+    assert props["max_items_per_list"]["default"] == 5000

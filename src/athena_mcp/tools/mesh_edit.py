@@ -259,3 +259,30 @@ DUPLICATE_SELECTION_SCHEMA: JSONDict = {
     },
     "additionalProperties": False,
 }
+
+SCENE_SNAPSHOT_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "include_mesh_stats": {"type": "boolean", "default": True},
+        "include_materials": {"type": "boolean", "default": True},
+        "include_collections": {"type": "boolean", "default": True},
+        "max_objects": {"type": "integer", "minimum": 1, "default": 200},
+        "max_materials_per_object": {"type": "integer", "minimum": 0, "default": 32},
+        "max_items_per_list": {"type": "integer", "minimum": 0, "default": 5000},
+    },
+    "additionalProperties": False,
+}
+
+OBJECT_SNAPSHOT_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "include_mesh_stats": {"type": "boolean", "default": True},
+        "include_materials": {"type": "boolean", "default": True},
+        "include_modifiers": {"type": "boolean", "default": True},
+        "include_collections": {"type": "boolean", "default": True},
+        "max_items_per_list": {"type": "integer", "minimum": 0, "default": 5000},
+    },
+    "required": ["name"],
+    "additionalProperties": False,
+}

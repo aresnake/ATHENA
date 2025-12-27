@@ -241,6 +241,34 @@ def _tool_blender_mesh_duplicate_selection(args: JSONDict) -> JSONDict:
     )
 
 
+def _tool_blender_scene_snapshot(args: JSONDict) -> JSONDict:
+    return _call_bridge(
+        "blender-scene-snapshot",
+        {
+            "include_mesh_stats": args.get("include_mesh_stats", True),
+            "include_materials": args.get("include_materials", True),
+            "include_collections": args.get("include_collections", True),
+            "max_objects": args.get("max_objects", 200),
+            "max_materials_per_object": args.get("max_materials_per_object", 32),
+            "max_items_per_list": args.get("max_items_per_list", 5000),
+        },
+    )
+
+
+def _tool_blender_object_snapshot(args: JSONDict) -> JSONDict:
+    return _call_bridge(
+        "blender-object-snapshot",
+        {
+            "name": args.get("name"),
+            "include_mesh_stats": args.get("include_mesh_stats", True),
+            "include_materials": args.get("include_materials", True),
+            "include_modifiers": args.get("include_modifiers", True),
+            "include_collections": args.get("include_collections", True),
+            "max_items_per_list": args.get("max_items_per_list", 5000),
+        },
+    )
+
+
 TOOLS: List[ToolDefinition] = [
     ToolDefinition(
         name="blender-list-objects",
@@ -445,6 +473,18 @@ TOOLS: List[ToolDefinition] = [
         description="Duplicate current selection via bmesh (SAFE-FIRST).",
         input_schema=mesh_edit.DUPLICATE_SELECTION_SCHEMA,
         impl=_tool_blender_mesh_duplicate_selection,
+    ),
+    ToolDefinition(
+        name="blender-scene-snapshot",
+        description="SAFE-FIRST scene snapshot (no View3D).",
+        input_schema=mesh_edit.SCENE_SNAPSHOT_SCHEMA,
+        impl=_tool_blender_scene_snapshot,
+    ),
+    ToolDefinition(
+        name="blender-object-snapshot",
+        description="SAFE-FIRST object snapshot (no View3D).",
+        input_schema=mesh_edit.OBJECT_SNAPSHOT_SCHEMA,
+        impl=_tool_blender_object_snapshot,
     ),
 ]
 

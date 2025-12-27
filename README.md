@@ -62,6 +62,11 @@ Invoke-RestMethod -Method Post http://127.0.0.1:9000/tools/call -Body '{"name":"
 - Duplicate selection with offset: `{"name":"blender-mesh-duplicate-selection","args":{"dx":0,"dy":0,"dz":1}}`
 - Sample chain: select top face by normal -> duplicate-selection dz=1 -> inset-selection -> extrude-selection -> set-mode OBJECT
 
+## Pack 07 SAFE-FIRST (snapshots)
+- Scene snapshot: `{"name":"blender-scene-snapshot","args":{}}` (respects limits and includes mesh/material stats)
+- Object snapshot: `{"name":"blender-object-snapshot","args":{"name":"Cube"}}`
+- Sample chain: validate tool -> scene snapshot -> object snapshot -> continue with SAFE-FIRST modeling.
+
 ## Tests
 - Run `python -m pytest` (no Blender required). Tests cover tool listing, tool call routing with a mocked bridge, and an HTTP server health smoke test.
 

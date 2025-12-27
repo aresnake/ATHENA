@@ -798,6 +798,135 @@ def mesh_duplicate_selection(args: Dict[str, Any]) -> Dict[str, Any]:
         )
 
 
+def _mesh_stats(mesh, max_items: int, include_selected: bool = True) -> Dict[str, Any]:
+    stats: Dict[str, Any] = {
+        "verts": len(mesh.vertices),
+        "edges": len(mesh.edges),
+        "faces": len(mesh.polygons),
+    }
+    try:
+        mesh.calc_loop_triangles()
+        stats["tris"] = len(mesh.loop_triangles)
+    except Exception:
+        pass
+    if include_selected:
+        stats["selected"] = {
+            "verts": sum(1 for v in mesh.vertices[: max_items] if getattr(v, "select", False)),
+            "edges": sum(1 for e in mesh.edges[: max_items] if getattr(e, "select", False)),
+            "faces": sum(1 for p in mesh.polygons[: max_items] if getattr(p, "select", False)),
+        }
+    return stats
+
+
+def _object_snapshot(obj, include_mesh_stats: bool, include_materials: bool, include_modifiers: bool, include_collections: bool, max_items: int, max_materials: int | None = None) -> Dict[str, Any]:
+    data: Dict[str, Any] = {
+        "name": obj.name,
+        "type": obj.type,
+        "visible_viewport": bool(getattr(obj, "visible_get", lambda: True)()),
+        "hide_viewport": bool(getattr(obj, "hide_viewport", False)),
+        "location": list(obj.location) if hasattr(obj, "location") else None,
+        "rotation_euler": list(obj.rotation_euler) if hasattr(obj, "rotation_euler") else None,
+        "scale": list(obj.scale) if hasattr(obj, "scale") else None,
+        "dimensions": list(obj.dimensions) if hasattr(obj, "dimensions") else None,
+    }
+    if include_mesh_stats and obj.type == "MESH" and obj.data:
+        try:
+            data.setdefault("data", {})["mesh_stats"] = _mesh_stats(obj.data, max_items)
+        except Exception:
+            pass
+    if include_materials:
+        mats = []
+        for slot in list(getattr(obj, "material_slots", []))[: (max_materials or max_items)]:
+            mat = getattr(slot, "material", None)
+            if mat:
+                mats.append({"name": mat.name})
+        data["materials"] = mats
+    if include_modifiers:
+        mods = []
+        for mod in list(getattr(obj, "modifiers", []))[: max_items]:
+            mods.append({"name": mod.name, "type": mod.type})
+        data["modifiers"] = mods
+    if include_collections:
+        cols = [c.name for c in list(getattr(obj, "users_collection", []))[: max_items]]
+        data["collections"] = cols
+    return data
+
+
+def scene_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    include_mesh_stats = bool(args.get("include_mesh_stats", True))
+    include_materials = bool(args.get("include_materials", True))
+    include_collections = bool(args.get("include_collections", True))
+    max_objects = int(args.get("max_objects", 200))
+    max_materials = int(args.get("max_materials_per_object", 32))
+    max_items = int(args.get("max_items_per_list", 5000))
+    try:
+        objs_payload = []
+        for obj in list(bpy.data.objects)[:max_objects]:
+            objs_payload.append(
+                _object_snapshot(
+                    obj,
+                    include_mesh_stats=include_mesh_stats,
+                    include_materials=include_materials,
+                    include_modifiers=False,
+                    include_collections=include_collections,
+                    max_items=max_items,
+                    max_materials=max_materials,
+                )
+            )
+        ctx = bpy.context
+        result = {
+            "blender_version": getattr(bpy.app, "version_string", "unknown"),
+            "is_background": bool(getattr(bpy.app, "background", False)),
+            "has_window": bool(getattr(ctx, "window", None)),
+            "context": {"mode": getattr(ctx, "mode", None), "active_object": ctx.view_layer.objects.active.name if ctx.view_layer.objects.active else None},
+            "objects": objs_payload,
+        }
+        return ok_response(result=result)
+    except Exception as exc:
+        return error_response(
+            str(exc),
+            code="internal_error",
+            details={"tool": "blender-scene-snapshot", "reason": str(exc)},
+        )
+
+
+def object_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    name = args.get("name")
+    if not isinstance(name, str):
+        return error_response("name is required", code="bad_request")
+    include_mesh_stats = bool(args.get("include_mesh_stats", True))
+    include_materials = bool(args.get("include_materials", True))
+    include_modifiers = bool(args.get("include_modifiers", True))
+    include_collections = bool(args.get("include_collections", True))
+    max_items = int(args.get("max_items_per_list", 5000))
+    obj = bpy.data.objects.get(name)
+    if obj is None:
+        return error_response(
+            f"Object '{name}' not found",
+            code="not_found",
+            details={"code": "not_found", "name": name},
+        )
+    try:
+        snapshot = _object_snapshot(
+            obj,
+            include_mesh_stats=include_mesh_stats,
+            include_materials=include_materials,
+            include_modifiers=include_modifiers,
+            include_collections=include_collections,
+            max_items=max_items,
+            max_materials=max_items,
+        )
+        return ok_response(result=snapshot)
+    except Exception as exc:
+        return error_response(
+            str(exc),
+            code="internal_error",
+            details={"tool": "blender-object-snapshot", "reason": str(exc)},
+        )
+
+
 def capabilities(args: Dict[str, Any] | None = None) -> Dict[str, Any]:
     bpy = _require_bpy()
 

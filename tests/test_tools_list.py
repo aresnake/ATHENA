@@ -57,6 +57,8 @@ def test_tools_list_endpoint():
             "blender-mesh-inset-selection",
             "blender-mesh-select-by-normal",
             "blender-mesh-duplicate-selection",
+            "blender-scene-snapshot",
+            "blender-object-snapshot",
         }
         assert expected.issubset(names)
         for tool in tools:
