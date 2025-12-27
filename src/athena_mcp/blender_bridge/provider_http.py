@@ -122,6 +122,12 @@ def _execute_tool(tool: str, args: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(args, dict):
             return error_response("args must be object", code="bad_request")
         return executor.mesh_select_by_index(args)
+    if tool == "blender-capabilities":
+        return executor.capabilities(args)
+    if tool == "blender-validate-tool":
+        if not isinstance(args, dict):
+            return error_response("args must be object", code="bad_request")
+        return executor.validate_tool(args)
     return error_response(f"Unknown tool '{tool}'", code="unknown_tool")
 
 

@@ -488,3 +488,120 @@ def mesh_select_by_index(args: Dict[str, Any]) -> Dict[str, Any]:
         return ok_response(result={"select_by_index": True, "element": element, "count": count})
     except Exception as exc:
         return error_response(str(exc), code="internal_error")
+
+
+def capabilities(args: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    bpy = _require_bpy()
+
+    def _op_status(op_id: str) -> Dict[str, Any]:
+        parts = op_id.split(".")
+        exists = False
+        poll_ok = False
+        reason: Optional[str] = None
+        if len(parts) == 2:
+            space, name = parts
+            target = getattr(getattr(bpy.ops, space, None), name, None)
+            exists = target is not None
+            if exists and hasattr(target, "poll"):
+                try:
+                    poll_ok = bool(target.poll())
+                except Exception as exc:  # pragma: no cover - runtime dependent
+                    poll_ok = False
+                    reason = str(exc)
+        else:
+            reason = "invalid op id"
+        return {"id": op_id, "exists": exists, "poll_ok": poll_ok, "reason": reason}
+
+    try:
+        ctx = bpy.context
+        result = {
+            "blender_version": getattr(bpy.app, "version_string", "unknown"),
+            "is_background": bool(getattr(bpy.app, "background", False)),
+            "has_window": bool(getattr(ctx, "window", None)),
+            "context": {
+                "mode": getattr(ctx, "mode", "UNKNOWN"),
+                "active_object": ctx.view_layer.objects.active.name if ctx.view_layer.objects.active else None,
+            },
+            "ops": [
+                _op_status("mesh.loop_select"),
+                _op_status("mesh.ring_select"),
+                _op_status("mesh.select_linked"),
+                _op_status("mesh.bevel"),
+                _op_status("mesh.loopcut_slide"),
+            ],
+        }
+        return ok_response(result=result)
+    except Exception as exc:  # pragma: no cover - defensive
+        return error_response(str(exc), code="internal_error")
+
+
+def validate_tool(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    name = args.get("name")
+    if not isinstance(name, str):
+        return error_response("name is required", code="bad_request")
+
+    tool_to_ops = {
+        "blender-mesh-select-loop": ["mesh.loop_select"],
+        "blender-mesh-select-ring": ["mesh.ring_select"],
+        "blender-mesh-select-boundary": ["mesh.select_boundary_loop"],
+        "blender-mesh-select-linked": ["mesh.select_linked"],
+        "blender-mesh-select-non-manifold": ["mesh.select_non_manifold"],
+        "blender-mesh-loop-cut": ["mesh.loopcut_slide"],
+        "blender-mesh-bevel": ["mesh.bevel"],
+        "blender-mesh-extrude": ["mesh.extrude_region_move"],
+        "blender-mesh-inset": ["mesh.inset"],
+        "blender-mesh-subdivide": ["mesh.subdivide"],
+        "blender-mesh-delete": ["mesh.delete"],
+    }
+
+    ops = tool_to_ops.get(name, [])
+    if not ops:
+        return ok_response(
+            result={
+                "name": name,
+                "supported": False,
+                "class": "OPS_MISSING",
+                "details": {"reason": "unknown tool"},
+            }
+        )
+
+    def _op_exists(op_id: str) -> Dict[str, Any]:
+        space, op_name = op_id.split(".")
+        target = getattr(getattr(bpy.ops, space, None), op_name, None)
+        exists = target is not None
+        poll_ok = False
+        reason = None
+        if exists and hasattr(target, "poll"):
+            try:
+                poll_ok = bool(target.poll())
+            except Exception as exc:  # pragma: no cover
+                poll_ok = False
+                reason = str(exc)
+        return {"id": op_id, "exists": exists, "poll_ok": poll_ok, "reason": reason}
+
+    statuses = [_op_exists(op) for op in ops]
+    any_missing = any(not s["exists"] for s in statuses)
+    any_poll_fail = any(s["exists"] and not s["poll_ok"] for s in statuses)
+
+    if any_missing:
+        classification = "OPS_MISSING"
+        supported = False
+        reason = "operator missing"
+    elif any_poll_fail:
+        classification = "OPS_VIEW3D_REQUIRED"
+        supported = False
+        reason = "operator poll failed (likely needs View3D)"
+    else:
+        classification = "OPS_SAFE"
+        supported = True
+        reason = "operators available"
+
+    return ok_response(
+        result={
+            "name": name,
+            "supported": supported,
+            "class": classification,
+            "details": {"ops": statuses, "reason": reason},
+        }
+    )
