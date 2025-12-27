@@ -59,11 +59,35 @@ def _execute_tool(tool: str, args: Dict[str, Any]) -> Dict[str, Any]:
             return error_response("size must be a number", code="bad_request")
         return executor.add_cube(args)
     if tool == "blender-move-object":
-        name = args.get("name")
-        location = args.get("location")
         if not isinstance(args, dict):
             return error_response("args must be object", code="bad_request")
         return executor.move_object(args)
+    if tool == "blender-set-mode":
+        if not isinstance(args, dict):
+            return error_response("args must be object", code="bad_request")
+        return executor.set_mode(args)
+    if tool == "blender-set-selection-mode":
+        if not isinstance(args, dict):
+            return error_response("args must be object", code="bad_request")
+        return executor.set_selection_mode(args)
+    if tool == "blender-select-all":
+        return executor.select_all(args)
+    if tool == "blender-select-none":
+        return executor.select_none(args)
+    if tool == "blender-select-invert":
+        return executor.select_invert(args)
+    if tool == "blender-mesh-delete":
+        if not isinstance(args, dict):
+            return error_response("args must be object", code="bad_request")
+        return executor.mesh_delete(args)
+    if tool == "blender-mesh-extrude":
+        if not isinstance(args, dict):
+            return error_response("args must be object", code="bad_request")
+        return executor.mesh_extrude(args)
+    if tool == "blender-mesh-inset":
+        if not isinstance(args, dict):
+            return error_response("args must be object", code="bad_request")
+        return executor.mesh_inset(args)
     return error_response(f"Unknown tool '{tool}'", code="unknown_tool")
 
 

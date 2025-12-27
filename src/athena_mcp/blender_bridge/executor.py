@@ -13,6 +13,23 @@ def _require_bpy():
     return bpy
 
 
+def _active_mesh(bpy):
+    obj = bpy.context.view_layer.objects.active
+    if obj is None:
+        return None, error_response("No active object", code="bad_request")
+    if obj.type != "MESH":
+        return None, error_response("Active object is not a mesh", code="bad_request")
+    return obj, None
+
+
+def _ensure_mode(bpy, mode: str):
+    try:
+        bpy.ops.object.mode_set(mode=mode)
+        return None
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
 def list_objects(args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     bpy = _require_bpy()
     names: List[str] = [obj.name for obj in bpy.data.objects]
@@ -76,5 +93,141 @@ def move_object(args: Dict[str, Any]) -> Dict[str, Any]:
     try:
         obj.location = location
         return ok_response(result={"name": obj.name, "location": list(obj.location)})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def set_mode(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    mode = args.get("mode")
+    if mode not in ("OBJECT", "EDIT"):
+        return error_response("mode must be OBJECT or EDIT", code="bad_request")
+    target_name = args.get("name")
+    if target_name:
+        obj = bpy.data.objects.get(target_name)
+        if obj is None:
+            return error_response(f"Object '{target_name}' not found", code="not_found")
+        bpy.context.view_layer.objects.active = obj
+    obj, err = _active_mesh(bpy)
+    if err:
+        return err
+    if mode == "EDIT" and obj.mode != "EDIT":
+        error_mode = _ensure_mode(bpy, "EDIT")
+        if error_mode:
+            return error_mode
+    elif mode == "OBJECT":
+        error_mode = _ensure_mode(bpy, "OBJECT")
+        if error_mode:
+            return error_mode
+    return ok_response(result={"mode": mode, "active": obj.name})
+
+
+def set_selection_mode(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    mode = args.get("mode")
+    if mode not in ("VERT", "EDGE", "FACE"):
+        return error_response("mode must be VERT/EDGE/FACE", code="bad_request")
+    obj, err = _active_mesh(bpy)
+    if err:
+        return err
+    if obj.mode != "EDIT":
+        ensure = _ensure_mode(bpy, "EDIT")
+        if ensure:
+            return ensure
+    flags = {
+        "VERT": (True, False, False),
+        "EDGE": (False, True, False),
+        "FACE": (False, False, True),
+    }
+    bpy.context.tool_settings.mesh_select_mode = flags[mode]
+    return ok_response(result={"mode": mode})
+
+
+def _ensure_edit_mode(bpy):
+    obj, err = _active_mesh(bpy)
+    if err:
+        return None, err
+    if obj.mode != "EDIT":
+        ensure = _ensure_mode(bpy, "EDIT")
+        if ensure:
+            return None, ensure
+    return obj, None
+
+
+def select_all(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    _, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    try:
+        bpy.ops.mesh.select_all(action="SELECT")
+        return ok_response(result={"selected": "all"})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def select_none(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    _, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    try:
+        bpy.ops.mesh.select_all(action="DESELECT")
+        return ok_response(result={"selected": "none"})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def select_invert(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    _, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    try:
+        bpy.ops.mesh.select_all(action="INVERT")
+        return ok_response(result={"selected": "invert"})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_delete(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    _, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    delete_type = args.get("type")
+    if delete_type not in ("VERT", "EDGE", "FACE"):
+        return error_response("type must be VERT/EDGE/FACE", code="bad_request")
+    try:
+        bpy.ops.mesh.delete(type=delete_type)
+        return ok_response(result={"deleted": True, "type": delete_type})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_extrude(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    _, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    try:
+        delta = (float(args.get("x", 0.0)), float(args.get("y", 0.0)), float(args.get("z", 0.0)))
+        bpy.ops.mesh.extrude_region_move(TRANSFORM_OT_translate={"value": delta})
+        return ok_response(result={"extruded": True, "delta": list(delta)})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_inset(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    _, err = _ensure_edit_mode(bpy)
+    if err:
+        return err
+    if "thickness" not in args:
+        return error_response("thickness is required", code="bad_request")
+    try:
+        thickness = float(args.get("thickness"))
+        bpy.ops.mesh.inset(thickness=thickness)
+        return ok_response(result={"inset": True, "thickness": thickness})
     except Exception as exc:
         return error_response(str(exc), code="bridge_error")

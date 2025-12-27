@@ -30,6 +30,13 @@ Invoke-RestMethod -Method Post http://127.0.0.1:9000/tools/call -Body '{"name":"
 # { "ok": true, "result": { "name": "Cube", "location": [0,0,0], "size": 1.0 } }
 ```
 
+## Live modeling script (example sequence)
+1. Add a cube: `{"name":"blender-add-cube","args":{"name":"Cube"}}`
+2. Enter edit mode: `{"name":"blender-set-mode","args":{"mode":"EDIT","name":"Cube"}}`
+3. Select all: `{"name":"blender-select-all","args":{}}`
+4. Extrude up: `{"name":"blender-mesh-extrude","args":{"x":0,"y":0,"z":1}}`
+5. Return to object mode: `{"name":"blender-set-mode","args":{"mode":"OBJECT","name":"Cube"}}`
+
 ## Tests
 - Run `python -m pytest` (no Blender required). Tests cover tool listing, tool call routing with a mocked bridge, and an HTTP server health smoke test.
 

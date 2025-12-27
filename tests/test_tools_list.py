@@ -21,7 +21,21 @@ def test_tools_list_endpoint():
         data = resp.json()
         assert data["ok"] is True
         tools = data["tools"]
-        assert len(tools) == 3
+        names = {t["name"] for t in tools}
+        expected = {
+            "blender-list-objects",
+            "blender-add-cube",
+            "blender-move-object",
+            "blender-set-mode",
+            "blender-set-selection-mode",
+            "blender-select-all",
+            "blender-select-none",
+            "blender-select-invert",
+            "blender-mesh-delete",
+            "blender-mesh-extrude",
+            "blender-mesh-inset",
+        }
+        assert expected.issubset(names)
         for tool in tools:
             assert "name" in tool
             assert "description" in tool

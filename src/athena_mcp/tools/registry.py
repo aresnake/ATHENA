@@ -4,7 +4,7 @@ from typing import Dict, List
 
 from ..mcp_core.bridge_client import bridge_request
 from ..mcp_core.types import BridgeFunc, JSONDict, ToolDefinition, error_response, ok_response
-from . import primitives
+from . import mesh_edit, primitives
 
 _bridge_request: BridgeFunc = bridge_request
 
@@ -33,6 +33,41 @@ def _tool_blender_move_object(args: JSONDict) -> JSONDict:
     return _call_bridge("blender-move-object", args or {})
 
 
+def _tool_blender_set_mode(args: JSONDict) -> JSONDict:
+    payload = {"mode": args.get("mode")}
+    if "name" in args:
+        payload["name"] = args.get("name")
+    return _call_bridge("blender-set-mode", payload)
+
+
+def _tool_blender_set_selection_mode(args: JSONDict) -> JSONDict:
+    return _call_bridge("blender-set-selection-mode", {"mode": args.get("mode")})
+
+
+def _tool_blender_select_all(args: JSONDict) -> JSONDict:
+    return _call_bridge("blender-select-all", {})
+
+
+def _tool_blender_select_none(args: JSONDict) -> JSONDict:
+    return _call_bridge("blender-select-none", {})
+
+
+def _tool_blender_select_invert(args: JSONDict) -> JSONDict:
+    return _call_bridge("blender-select-invert", {})
+
+
+def _tool_blender_mesh_delete(args: JSONDict) -> JSONDict:
+    return _call_bridge("blender-mesh-delete", {"type": args.get("type")})
+
+
+def _tool_blender_mesh_extrude(args: JSONDict) -> JSONDict:
+    return _call_bridge("blender-mesh-extrude", {"x": args.get("x"), "y": args.get("y"), "z": args.get("z")})
+
+
+def _tool_blender_mesh_inset(args: JSONDict) -> JSONDict:
+    return _call_bridge("blender-mesh-inset", {"thickness": args.get("thickness")})
+
+
 TOOLS: List[ToolDefinition] = [
     ToolDefinition(
         name="blender-list-objects",
@@ -51,6 +86,54 @@ TOOLS: List[ToolDefinition] = [
         description="Move an object to a new location.",
         input_schema=primitives.MOVE_OBJECT_SCHEMA,
         impl=_tool_blender_move_object,
+    ),
+    ToolDefinition(
+        name="blender-set-mode",
+        description="Set the active object's mode (OBJECT or EDIT).",
+        input_schema=mesh_edit.SET_MODE_SCHEMA,
+        impl=_tool_blender_set_mode,
+    ),
+    ToolDefinition(
+        name="blender-set-selection-mode",
+        description="Set mesh selection mode to VERT/EDGE/FACE.",
+        input_schema=mesh_edit.SET_SELECTION_MODE_SCHEMA,
+        impl=_tool_blender_set_selection_mode,
+    ),
+    ToolDefinition(
+        name="blender-select-all",
+        description="Select all elements in EDIT mode.",
+        input_schema=mesh_edit.SELECT_ALL_SCHEMA,
+        impl=_tool_blender_select_all,
+    ),
+    ToolDefinition(
+        name="blender-select-none",
+        description="Deselect all elements in EDIT mode.",
+        input_schema=mesh_edit.SELECT_NONE_SCHEMA,
+        impl=_tool_blender_select_none,
+    ),
+    ToolDefinition(
+        name="blender-select-invert",
+        description="Invert selection in EDIT mode.",
+        input_schema=mesh_edit.SELECT_INVERT_SCHEMA,
+        impl=_tool_blender_select_invert,
+    ),
+    ToolDefinition(
+        name="blender-mesh-delete",
+        description="Delete mesh components of the selected type.",
+        input_schema=mesh_edit.MESH_DELETE_SCHEMA,
+        impl=_tool_blender_mesh_delete,
+    ),
+    ToolDefinition(
+        name="blender-mesh-extrude",
+        description="Extrude current selection by a delta vector.",
+        input_schema=mesh_edit.MESH_EXTRUDE_SCHEMA,
+        impl=_tool_blender_mesh_extrude,
+    ),
+    ToolDefinition(
+        name="blender-mesh-inset",
+        description="Inset current selection by thickness.",
+        input_schema=mesh_edit.MESH_INSET_SCHEMA,
+        impl=_tool_blender_mesh_inset,
     ),
 ]
 
