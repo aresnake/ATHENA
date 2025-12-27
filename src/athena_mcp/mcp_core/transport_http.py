@@ -62,6 +62,16 @@ class MCPHTTPRequestHandler(BaseHTTPRequestHandler):
             self._send_json(error_response("args must be object", code="bad_request"), status=400)
             return
         response = call_tool(name, args)
+        if response.get("ok") and isinstance(response.get("result"), dict):
+            inner = response["result"]
+            if isinstance(inner, dict) and "ok" in inner:
+                if inner.get("ok"):
+                    response = ok_response(result=inner.get("result", {}))
+                else:
+                    err = inner.get("error") or {}
+                    message = err.get("message") if isinstance(err, dict) else "Bridge tool error"
+                    details = err.get("details") if isinstance(err, dict) else {}
+                    response = error_response(message or "Bridge tool error", code="bridge_tool_error", details=details or err or {})
         status = 200 if response.get("ok") else 400
         self._send_json(response, status=status)
 
