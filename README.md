@@ -15,7 +15,7 @@ Minimal MCP server with HTTP + stdio transports and a Blender HTTP bridge. Tool 
 ## Run the Blender bridge
 - Headless: `blender.exe --factory-startup --background --python src/athena_mcp/blender_bridge/provider_http.py`
 - UI session: `blender.exe --factory-startup --python src/athena_mcp/blender_bridge/provider_http.py`
-- The bridge hosts `http://127.0.0.1:8765` with `/health` and `/exec` endpoints and executes requests on Blender's main thread via a timer + queue.
+- The bridge hosts `http://127.0.0.1:8765` with `/health` and `/exec` endpoints and executes requests on Blender's main thread via a timer + queue. The HTTP server runs in a background daemon thread so the Blender UI stays responsive; requests wait briefly for results and return a timeout error if the main thread does not complete in time.
 
 ## Verify with PowerShell
 ```powershell
@@ -35,3 +35,4 @@ Invoke-RestMethod -Method Post http://127.0.0.1:9000/tools/call -Body '{"name":"
 - MCP server cannot reach Blender bridge: confirm the bridge process is running and reachable at `127.0.0.1:8765` (check `/health`).
 - Blender operations fail: ensure the bridge is started with `--factory-startup` to avoid add-ons interfering, and that tool payloads match the documented schemas.
 - Running the bridge script directly in Blender: the bridge is self-contained and adjusts `sys.path` so you can pass the absolute path to `provider_http.py` without installing `athena_mcp`.
+- UI still freezes: confirm you're using the provided `provider_http.py` which starts its HTTP server on a background thread; timeouts in `/exec` responses indicate the main-thread queue isn't processing quickly enough (ensure the timer is running and the scene isn't blocked by modal operations).

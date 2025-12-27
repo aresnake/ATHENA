@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -24,6 +25,11 @@ def _ensure_bpy() -> Any:
     if bpy is None:  # pragma: no cover - runtime check
         raise RuntimeError("This bridge must run inside Blender (bpy unavailable)")
     return bpy
+
+
+_WAIT_TIMEOUT = 2.0
+_DEFAULT_HOST = "127.0.0.1"
+_DEFAULT_PORT = 8765
 
 
 def _schedule_timer_once() -> None:
@@ -126,7 +132,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
 
         task_queue.push(_job)
         # Wait for main-thread execution signalled by timer.
-        finished = done.wait(timeout=5.0)
+        finished = done.wait(timeout=_WAIT_TIMEOUT)
         if not finished:
             self._send_json(error_response("execution timeout", code="timeout"), status=504)
             return
@@ -139,11 +145,23 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
 def main() -> None:
     _ensure_bpy()
     _schedule_timer_once()
-    host = "127.0.0.1"
-    port = 8765
-    httpd = ThreadingHTTPServer((host, port), BridgeRequestHandler)
-    print(f"Blender bridge listening on http://{host}:{port}")  # pragma: no cover - console hint
-    httpd.serve_forever()
+    host = _DEFAULT_HOST
+    port = _DEFAULT_PORT
+
+    server = ThreadingHTTPServer((host, port), BridgeRequestHandler)
+    server.daemon_threads = True
+
+    def _serve() -> None:  # pragma: no cover - requires runtime
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+
+    thread = threading.Thread(target=_serve, daemon=True, name="athena-bridge-http")
+    thread.start()
+    atexit.register(server.shutdown)
+    print(f"Blender bridge listening on http://{host}:{port} (background thread)")  # pragma: no cover - console hint
+    # Do not block Blender UI thread; the timer will keep processing jobs.
 
 
 if __name__ == "__main__":  # pragma: no cover - entrypoint
