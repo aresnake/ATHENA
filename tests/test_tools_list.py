@@ -23,11 +23,15 @@ def test_tools_list_endpoint():
         tools = data["tools"]
         names = {t["name"] for t in tools}
         expected = {
-            "blender-list-objects",
-            "blender-add-cube",
-            "blender-move-object",
-            "blender-set-mode",
-            "blender-set-selection-mode",
+            "blender-scene-list-objects",
+            "blender-primitive-cube",
+            "blender-primitive-cylinder",
+            "blender-primitive-cone",
+            "blender-primitive-torus",
+            "blender-primitive-sphere",
+            "blender-object-move",
+            "blender-mode-set",
+            "blender-mode-selection-set",
             "blender-select-all",
             "blender-select-none",
             "blender-select-invert",
@@ -49,22 +53,22 @@ def test_tools_list_endpoint():
             "blender-mesh-set-selection",
             "blender-mesh-bisect-plane",
             "blender-mesh-delete-by-index",
-            "blender-capabilities",
-            "blender-validate-tool",
+            "blender-diag-capabilities",
+            "blender-diag-validate-tool",
             "blender-mesh-translate-selection",
             "blender-mesh-scale-selection",
             "blender-mesh-extrude-selection",
             "blender-mesh-inset-selection",
             "blender-mesh-select-by-normal",
             "blender-mesh-duplicate-selection",
-            "blender-scene-snapshot",
-            "blender-object-snapshot",
+            "blender-diag-scene-snapshot",
+            "blender-diag-object-snapshot",
         }
         assert expected.issubset(names)
         for tool in tools:
             assert "name" in tool
             assert "description" in tool
-            assert "input_schema" in tool
+            assert "inputSchema" in tool
     finally:
         server.shutdown()
         thread.join(timeout=2)

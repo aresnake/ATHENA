@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest:*)",
+      "Bash(python:*)",
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(ls:*)",
+      "Bash(dir:*)",
+      "Bash(set PYTHONPATH=src:*)",
+      "Bash(.venvScriptspython.exe -c \"from athena_mcp.tools import registry; print\\(''Categories:'', registry.get_categories\\(\\)\\); print\\(''Tags:'', len\\(registry.get_tags\\(\\)\\), ''tags''\\); mesh = registry.filter_tools\\(category=''mesh''\\); print\\(''Mesh tools:'', len\\(mesh\\)\\); select = registry.search_tools\\(''select''\\); print\\(''Search select:'', len\\(select\\)\\)\")"
+    ]
+  }
+}

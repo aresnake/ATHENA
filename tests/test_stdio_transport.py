@@ -86,13 +86,13 @@ def test_stdio_jsonrpc_flow(tmp_path):
         )
         assert init_resp["jsonrpc"] == "2.0"
         assert init_resp["id"] == 1
-        assert init_resp["result"]["protocolVersion"] == "0.1.0"
+        assert init_resp["result"]["protocolVersion"] == "2024-11-05"
 
         list_resp = _send_request(proc, {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
         assert list_resp["id"] == 2
         tools = list_resp["result"]["tools"]
         assert isinstance(tools, list)
-        assert any(t["name"] == "blender-list-objects" for t in tools)
+        assert any(t["name"] == "blender-scene-list-objects" for t in tools)
         assert all("inputSchema" in t for t in tools)
 
         call_resp = _send_request(
@@ -101,7 +101,7 @@ def test_stdio_jsonrpc_flow(tmp_path):
                 "jsonrpc": "2.0",
                 "id": 3,
                 "method": "tools/call",
-                "params": {"name": "blender-list-objects", "arguments": {"sample": True}},
+                "params": {"name": "blender-scene-list-objects", "arguments": {"sample": True}},
             },
         )
         assert call_resp["id"] == 3
@@ -110,7 +110,7 @@ def test_stdio_jsonrpc_flow(tmp_path):
         first = content[0]
         assert first["type"] == "text"
         tool_echo = json.loads(first["text"])
-        assert tool_echo["tool"] == "blender-list-objects"
+        assert tool_echo["tool"] == "blender-scene-list-objects"
         assert tool_echo["args"] == {"sample": True}
     finally:
         if proc.stdin:

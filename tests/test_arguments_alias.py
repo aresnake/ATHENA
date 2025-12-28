@@ -28,13 +28,13 @@ def test_arguments_alias_forwarding(monkeypatch):
     try:
         resp = requests.post(
             f"http://{host}:{port}/tools/call",
-            json={"name": "blender-move-object", "arguments": {"name": "Cube", "x": 2, "y": 0, "z": 0}},
+            json={"name": "blender-object-move", "arguments": {"name": "Cube", "x": 2, "y": 0, "z": 0}},
             timeout=2,
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is True
-        assert captured["tool"] == "blender-move-object"
+        assert captured["tool"] == "blender-object-move"
         assert captured["args"]["name"] == "Cube"
         assert captured["args"]["x"] == 2
     finally:

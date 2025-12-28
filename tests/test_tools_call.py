@@ -23,7 +23,7 @@ def test_tools_call_with_mock_bridge(monkeypatch):
     server, thread = start_server()
     host, port = server.server_address
     try:
-        payload = {"name": "blender-add-cube", "args": {"name": "CubeOne"}}
+        payload = {"name": "blender-primitive-cube", "args": {"name": "CubeOne"}}
         resp = requests.post(
             f"http://{host}:{port}/tools/call",
             json=payload,
@@ -32,7 +32,7 @@ def test_tools_call_with_mock_bridge(monkeypatch):
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is True
-        assert data["result"]["echo"] == "blender-add-cube"
+        assert data["result"]["echo"] == "blender-primitive-cube"
         assert data["result"]["args"]["name"] == "CubeOne"
         assert data["result"]["marker"] == "mock"
     finally:

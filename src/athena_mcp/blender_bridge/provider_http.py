@@ -31,6 +31,67 @@ _WAIT_TIMEOUT = 2.0
 _DEFAULT_HOST = "127.0.0.1"
 _DEFAULT_PORT = 8765
 
+# Tool registry: maps both old and new tool names to executor functions
+_TOOL_REGISTRY: Dict[str, Any] = {
+    # Scene tools
+    "blender-list-objects": executor.list_objects,
+    "blender-scene-list-objects": executor.list_objects,
+    # Primitives
+    "blender-add-cube": executor.add_cube,
+    "blender-primitive-cube": executor.add_cube,
+    "blender-add-cylinder": executor.add_cylinder,
+    "blender-primitive-cylinder": executor.add_cylinder,
+    "blender-add-sphere": executor.add_sphere,
+    "blender-primitive-sphere": executor.add_sphere,
+    # Object operations
+    "blender-move-object": executor.move_object,
+    "blender-object-move": executor.move_object,
+    # Mode operations
+    "blender-set-mode": executor.set_mode,
+    "blender-mode-set": executor.set_mode,
+    "blender-set-selection-mode": executor.set_selection_mode,
+    "blender-mode-selection-set": executor.set_selection_mode,
+    # Selection
+    "blender-select-all": executor.select_all,
+    "blender-select-none": executor.select_none,
+    "blender-select-invert": executor.select_invert,
+    # Mesh editing
+    "blender-mesh-delete": executor.mesh_delete,
+    "blender-mesh-extrude": executor.mesh_extrude,
+    "blender-mesh-inset": executor.mesh_inset,
+    "blender-mesh-loop-cut": executor.mesh_loop_cut,
+    "blender-mesh-bevel": executor.mesh_bevel,
+    "blender-mesh-subdivide": executor.mesh_subdivide,
+    "blender-mesh-merge": executor.mesh_merge,
+    # Mesh selection
+    "blender-mesh-select-loop": executor.mesh_select_loop,
+    "blender-mesh-select-ring": executor.mesh_select_ring,
+    "blender-mesh-select-linked": executor.mesh_select_linked,
+    "blender-mesh-select-more": executor.mesh_select_more,
+    "blender-mesh-select-less": executor.mesh_select_less,
+    "blender-mesh-select-non-manifold": executor.mesh_select_non_manifold,
+    "blender-mesh-select-boundary": executor.mesh_select_boundary,
+    "blender-mesh-select-by-index": executor.mesh_select_by_index,
+    # Diagnostics
+    "blender-capabilities": executor.capabilities,
+    "blender-diag-capabilities": executor.capabilities,
+    "blender-validate-tool": executor.validate_tool,
+    "blender-diag-validate-tool": executor.validate_tool,
+    # Safe-first mesh operations
+    "blender-mesh-set-selection": executor.mesh_set_selection,
+    "blender-mesh-bisect-plane": executor.mesh_bisect_plane,
+    "blender-mesh-delete-by-index": executor.mesh_delete_by_index,
+    "blender-mesh-translate-selection": executor.mesh_translate_selection,
+    "blender-mesh-scale-selection": executor.mesh_scale_selection,
+    "blender-mesh-extrude-selection": executor.mesh_extrude_selection,
+    "blender-mesh-inset-selection": executor.mesh_inset_selection,
+    "blender-mesh-select-by-normal": executor.mesh_select_by_normal,
+    "blender-mesh-duplicate-selection": executor.mesh_duplicate_selection,
+    "blender-diag-scene-snapshot": executor.scene_snapshot,
+    "blender-diag-object-snapshot": executor.object_snapshot,
+    "blender-exec-python": executor.exec_python,
+}
+
 
 def _schedule_timer_once() -> None:
     _ensure_bpy()
@@ -48,131 +109,18 @@ def _schedule_timer_once() -> None:
 
 
 def _execute_tool(tool: str, args: Dict[str, Any]) -> Dict[str, Any]:
-    if tool == "blender-list-objects":
-        return executor.list_objects(args)
-    if tool == "blender-add-cube":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        if "name" in args and not isinstance(args.get("name"), str):
-            return error_response("name must be a string", code="bad_request")
-        if "size" in args and not isinstance(args.get("size"), (int, float)):
-            return error_response("size must be a number", code="bad_request")
-        return executor.add_cube(args)
-    if tool == "blender-move-object":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.move_object(args)
-    if tool == "blender-set-mode":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.set_mode(args)
-    if tool == "blender-set-selection-mode":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.set_selection_mode(args)
-    if tool == "blender-select-all":
-        return executor.select_all(args)
-    if tool == "blender-select-none":
-        return executor.select_none(args)
-    if tool == "blender-select-invert":
-        return executor.select_invert(args)
-    if tool == "blender-mesh-delete":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.mesh_delete(args)
-    if tool == "blender-mesh-extrude":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.mesh_extrude(args)
-    if tool == "blender-mesh-inset":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.mesh_inset(args)
-    if tool == "blender-mesh-loop-cut":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.mesh_loop_cut(args)
-    if tool == "blender-mesh-bevel":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.mesh_bevel(args)
-    if tool == "blender-mesh-subdivide":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.mesh_subdivide(args)
-    if tool == "blender-mesh-merge":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.mesh_merge(args)
-    if tool == "blender-mesh-select-loop":
-        return executor.mesh_select_loop(args)
-    if tool == "blender-mesh-select-ring":
-        return executor.mesh_select_ring(args)
-    if tool == "blender-mesh-select-linked":
-        return executor.mesh_select_linked(args)
-    if tool == "blender-mesh-select-more":
-        return executor.mesh_select_more(args)
-    if tool == "blender-mesh-select-less":
-        return executor.mesh_select_less(args)
-    if tool == "blender-mesh-select-non-manifold":
-        return executor.mesh_select_non_manifold(args)
-    if tool == "blender-mesh-select-boundary":
-        return executor.mesh_select_boundary(args)
-    if tool == "blender-mesh-select-by-index":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.mesh_select_by_index(args)
-    if tool == "blender-capabilities":
-        return executor.capabilities(args)
-    if tool == "blender-validate-tool":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.validate_tool(args)
-    if tool == "blender-mesh-set-selection":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.mesh_set_selection(args)
-    if tool == "blender-mesh-bisect-plane":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.mesh_bisect_plane(args)
-    if tool == "blender-mesh-delete-by-index":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.mesh_delete_by_index(args)
-    if tool == "blender-mesh-translate-selection":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.mesh_translate_selection(args)
-    if tool == "blender-mesh-scale-selection":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.mesh_scale_selection(args)
-    if tool == "blender-mesh-extrude-selection":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.mesh_extrude_selection(args)
-    if tool == "blender-mesh-inset-selection":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.mesh_inset_selection(args)
-    if tool == "blender-mesh-select-by-normal":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.mesh_select_by_normal(args)
-    if tool == "blender-mesh-duplicate-selection":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.mesh_duplicate_selection(args)
-    if tool == "blender-scene-snapshot":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.scene_snapshot(args)
-    if tool == "blender-object-snapshot":
-        if not isinstance(args, dict):
-            return error_response("args must be object", code="bad_request")
-        return executor.object_snapshot(args)
-    return error_response(f"Unknown tool '{tool}'", code="unknown_tool")
+    """Execute a tool using the dynamic registry (supports old and new names)."""
+    if not isinstance(args, dict):
+        args = {}
+
+    executor_func = _TOOL_REGISTRY.get(tool)
+    if executor_func is None:
+        return error_response(f"Unknown tool '{tool}'", code="unknown_tool")
+
+    try:
+        return executor_func(args)
+    except Exception as exc:
+        return error_response(f"Tool execution failed: {str(exc)}", code="execution_error")
 
 
 class BridgeRequestHandler(BaseHTTPRequestHandler):

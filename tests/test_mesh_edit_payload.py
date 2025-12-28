@@ -22,9 +22,9 @@ def test_set_mode_payload(monkeypatch):
         return {"ok": True, "result": {"mode": args.get("mode"), "active": args.get("name", "Cube")}}
 
     monkeypatch.setattr(registry, "_bridge_request", _mock_bridge)
-    result = registry.call_tool("blender-set-mode", {"mode": "EDIT", "name": "Cube"})
+    result = registry.call_tool("blender-mode-set", {"mode": "EDIT", "name": "Cube"})
     assert result["ok"] is True
-    assert captured["tool"] == "blender-set-mode"
+    assert captured["tool"] == "blender-mode-set"
     assert captured["args"]["mode"] == "EDIT"
     assert captured["args"]["name"] == "Cube"
 

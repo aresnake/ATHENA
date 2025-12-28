@@ -50,16 +50,16 @@ def test_tools_call_uses_bridge_env(monkeypatch):
     try:
         resp = requests.post(
             f"http://{mcp_host}:{mcp_port}/tools/call",
-            json={"name": "blender-move-object", "args": {"name": "Cube", "location": [1, 2, 3]}},
+            json={"name": "blender-object-move", "args": {"name": "Cube", "location": [1, 2, 3]}},
             timeout=2,
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is True
-        assert data["result"]["echo"] == "blender-move-object"
+        assert data["result"]["echo"] == "blender-object-move"
         assert data["result"]["args"]["name"] == "Cube"
         assert isinstance(data["result"], dict) and data["result"]
-        assert getattr(bridge_server, "last_tool") == "blender-move-object"
+        assert getattr(bridge_server, "last_tool") == "blender-object-move"
     finally:
         mcp_server.shutdown()
         mcp_thread.join(timeout=2)
@@ -91,7 +91,7 @@ def test_tools_call_bridge_tool_error(monkeypatch):
     try:
         resp = requests.post(
             f"http://{mcp_host}:{mcp_port}/tools/call",
-            json={"name": "blender-move-object", "args": {"name": "Cube", "location": [1, 2, 3]}},
+            json={"name": "blender-object-move", "args": {"name": "Cube", "location": [1, 2, 3]}},
             timeout=2,
         )
         data = resp.json()

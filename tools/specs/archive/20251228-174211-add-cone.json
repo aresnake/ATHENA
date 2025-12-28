@@ -1,0 +1,153 @@
+{
+  "category": "primitives",
+  "mcp_spec": {
+    "name": "blender:add-cone",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name for the new cone object"
+        },
+        "depth": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0.001,
+          "description": "Height/depth of the cone along Z axis"
+        },
+        "radius1": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "description": "Radius of the base circle"
+        },
+        "radius2": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Radius of the top circle (0.0 for pure cone, same as radius1 for cylinder)"
+        },
+        "location": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "default": [
+            0,
+            0,
+            0
+          ],
+          "maxItems": 3,
+          "minItems": 3,
+          "description": "Location [x, y, z] where to place the cone"
+        },
+        "vertices": {
+          "type": "integer",
+          "default": 32,
+          "maximum": 512,
+          "minimum": 3,
+          "description": "Number of vertices in the base circle"
+        },
+        "end_fill_type": {
+          "enum": [
+            "NOTHING",
+            "NGON",
+            "TRIFAN"
+          ],
+          "type": "string",
+          "default": "NGON",
+          "description": "Type of end cap fill"
+        }
+      },
+      "additionalProperties": false
+    },
+    "description": "Add a cone mesh primitive with customizable geometry parameters. Can create cones (radius2=0) or cylinders (radius1=radius2)."
+  },
+  "priority": "high",
+  "tool_name": "add-cone",
+  "safe_first": true,
+  "test_cases": [
+    {
+      "params": {},
+      "description": "Default cone (pure cone with tip)",
+      "expected_result": "Cone with 32 verts base, 0 radius top, 2.0 depth"
+    },
+    {
+      "params": {
+        "radius1": 2,
+        "radius2": 0.5,
+        "depth": 4,
+        "vertices": 64,
+        "location": [
+          2,
+          0,
+          0
+        ]
+      },
+      "description": "Truncated cone with high resolution",
+      "expected_result": "High-poly truncated cone at custom location"
+    },
+    {
+      "params": {
+        "radius1": 1,
+        "radius2": 1,
+        "depth": 3
+      },
+      "description": "Cylinder mode (equal radii)",
+      "expected_result": "Perfect cylinder with uniform diameter"
+    },
+    {
+      "params": {
+        "vertices": 3,
+        "end_fill_type": "NOTHING"
+      },
+      "description": "Minimum triangle cone, no caps",
+      "expected_result": "Low-poly open cone"
+    },
+    {
+      "params": {
+        "radius1": 2,
+        "radius2": 0,
+        "end_fill_type": "TRIFAN"
+      },
+      "description": "Pure cone with TRIFAN cap",
+      "expected_result": "Cone with triangular fan base topology"
+    }
+  ],
+  "api_research": {
+    "operator": "bpy.ops.mesh.primitive_cone_add",
+    "test_date": "2024-12-28",
+    "blender_version_tested": "5.0.0",
+    "tested_with_exec_python": true
+  },
+  "blender_version": "5.0.0",
+  "validation_tests": {
+    "api_tested": true,
+    "edge_cases_tested": {
+      "cylinder_mode": "radius1=radius2 creates perfect cylinder",
+      "min_vertices": "vertices=3 supported",
+      "pure_cone": "radius2=0.0 creates point tip"
+    },
+    "geometry_verified": {
+      "default_faces": "Depends on end_fill_type and vertices",
+      "default_verts": "vertices * 2 + cap centers (if filled)",
+      "end_fill_affects_topology": "NGON (single n-gon), TRIFAN (triangulated), NOTHING (open)"
+    },
+    "exec_python_results": {
+      "custom_test": "âœ“ Truncated cone (r1=2.0, r2=0.5, depth=4.0) at (2,0,0)",
+      "cylinder_test": "âœ“ Cylinder mode verified (r1=r2=1.0)",
+      "default_test": "âœ“ Default cone created",
+      "end_fill_test": "âœ“ NGON/TRIFAN/NOTHING all functional",
+      "pure_cone_test": "âœ“ Pure cone (r2=0.0) creates tip"
+    }
+  },
+  "blender_pseudocode": "bpy.ops.mesh.primitive_cone_add(vertices=32, radius1=1.0, radius2=0.0, depth=2.0, end_fill_type='NGON', location=(0,0,0))",
+  "implementation_notes": {
+    "performance": "O(vertices) geometry created",
+    "typical_use": "Cones, cylinders, truncated cones for mechanical parts, pillars, trees",
+    "creates_new_object": true,
+    "modifies_selection": true,
+    "context_requirements": "Requires OBJECT mode",
+    "special_modes": "radius1=radius2 creates cylinder, radius2=0 creates pure cone"
+  }
+}

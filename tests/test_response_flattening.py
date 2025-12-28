@@ -24,7 +24,7 @@ def test_tools_call_flatten_nested_ok(monkeypatch):
     try:
         resp = requests.post(
             f"http://{host}:{port}/tools/call",
-            json={"name": "blender-add-cube", "args": {}},
+            json={"name": "blender-primitive-cube", "args": {}},
             timeout=2,
         )
         data = resp.json()

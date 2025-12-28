@@ -8,7 +8,7 @@ from athena_mcp.mcp_core.transport_http import serve
 
 
 def test_schema_includes_name():
-    schema = [t for t in registry.TOOLS if t.name == "blender-add-cube"][0].input_schema
+    schema = [t for t in registry.TOOLS if t.name == "blender-primitive-cube"][0].input_schema
     assert "name" in schema.get("properties", {})
 
 
@@ -22,9 +22,9 @@ def test_add_cube_defaults_send_name(monkeypatch):
 
     monkeypatch.setattr(registry, "_bridge_request", _mock_bridge)
 
-    result = tools.call_tool("blender-add-cube", {})
+    result = tools.call_tool("blender-primitive-cube", {})
     assert result["ok"] is True
-    assert calls["tool"] == "blender-add-cube"
+    assert calls["tool"] == "blender-primitive-cube"
     assert calls["args"]["name"] == "Cube"
 
 
@@ -44,7 +44,7 @@ def test_add_cube_http_call_with_default_name(monkeypatch):
     server, thread = start_server()
     host, port = server.server_address
     try:
-        resp = requests.post(f"http://{host}:{port}/tools/call", json={"name": "blender-add-cube", "args": {}}, timeout=2)
+        resp = requests.post(f"http://{host}:{port}/tools/call", json={"name": "blender-primitive-cube", "args": {}}, timeout=2)
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is True

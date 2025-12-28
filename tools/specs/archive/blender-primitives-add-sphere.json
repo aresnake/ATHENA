@@ -1,0 +1,117 @@
+{
+  "category": "primitives",
+  "priority": "high",
+  "tool_name": "add-sphere",
+  "safe_first": true,
+  "blender_version": "5.0.0",
+  "blender_pseudocode": "bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=1.0, location=(0,0,0))",
+  "api_research": {
+    "operator": "bpy.ops.mesh.primitive_uv_sphere_add",
+    "tested_with_exec_python": true,
+    "test_date": "2024-12-28",
+    "blender_version_tested": "5.0.0"
+  },
+  "test_cases": [
+    {
+      "description": "Default UV sphere at origin",
+      "params": {},
+      "expected_result": "Sphere with 482 verts, 512 faces at (0,0,0), radius ~1.0"
+    },
+    {
+      "description": "Custom sphere with high resolution",
+      "params": {
+        "segments": 64,
+        "ring_count": 32,
+        "radius": 2.5,
+        "location": [
+          1,
+          2,
+          3
+        ]
+      },
+      "expected_result": "High-poly sphere at custom location"
+    },
+    {
+      "description": "Minimum resolution sphere",
+      "params": {
+        "segments": 3,
+        "ring_count": 3,
+        "radius": 0.001
+      },
+      "expected_result": "Low-poly tiny sphere"
+    }
+  ],
+  "validation_tests": {
+    "api_tested": true,
+    "exec_python_results": {
+      "default_test": "âœ“ Default sphere created with 482 verts, 512 faces",
+      "custom_test": "âœ“ Custom sphere created at (5,0,0) with radius=3.0, dimensions=(6,6,6)",
+      "geometry_verified": "âœ“ Radius parameter scales dimensions correctly (radius * 2 = dimensions)"
+    },
+    "geometry_verified": {
+      "verts_default": 482,
+      "faces_default": 512,
+      "radius_scaling": "confirmed linear (radius=3.0 â†’ dimensions=6.0)"
+    },
+    "edge_cases_tested": {
+      "min_segments": "segments=3 supported",
+      "max_segments": "segments=512 tested",
+      "min_radius": "radius=0.001 functional"
+    }
+  },
+  "mcp_spec": {
+    "name": "blender:add-sphere",
+    "description": "Add a UV sphere mesh primitive with customizable geometry parameters.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name for the new sphere object"
+        },
+        "radius": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0.001,
+          "description": "Radius of the sphere"
+        },
+        "location": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "default": [
+            0,
+            0,
+            0
+          ],
+          "maxItems": 3,
+          "minItems": 3,
+          "description": "Location [x, y, z] where to place the sphere"
+        },
+        "segments": {
+          "type": "integer",
+          "default": 32,
+          "maximum": 512,
+          "minimum": 3,
+          "description": "Number of longitudinal segments"
+        },
+        "ring_count": {
+          "type": "integer",
+          "default": 16,
+          "maximum": 512,
+          "minimum": 3,
+          "description": "Number of latitudinal rings"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "implementation_notes": {
+    "context_requirements": "Requires OBJECT mode",
+    "creates_new_object": true,
+    "modifies_selection": true,
+    "performance": "O(segments * ring_count) vertices created",
+    "typical_use": "Standard sphere primitive for organic modeling, placeholders, reference geometry"
+  }
+}

@@ -1,0 +1,166 @@
+{
+  "category": "primitives",
+  "priority": "high",
+  "tool_name": "blender-primitives-add-cylinder",
+  "safe_first": true,
+  "test_cases": [
+    {
+      "input": {},
+      "validates": "Creates standard 32-vert cylinder at origin with 66 faces (32 sides + 2 caps)",
+      "description": "Default cylinder",
+      "api_tested": true
+    },
+    {
+      "input": {
+        "depth": 4,
+        "radius": 2.5,
+        "location": [
+          5,
+          0,
+          0
+        ],
+        "vertices": 16
+      },
+      "validates": "Creates 16-vert cylinder with custom dimensions at location",
+      "description": "Custom geometry",
+      "api_tested": true
+    },
+    {
+      "input": {
+        "vertices": 8,
+        "end_fill_type": "NOTHING"
+      },
+      "validates": "Creates tube without end caps (only side faces)",
+      "description": "Open ends",
+      "api_tested": true
+    }
+  ],
+  "description": "Add a cylinder mesh primitive to the scene with customizable geometry parameters. Tested on Blender 5.0.0 with exec-python validation.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Name for the new cylinder object"
+      },
+      "depth": {
+        "type": "number",
+        "default": 2,
+        "minimum": 0.001,
+        "description": "Height/depth of the cylinder along Z axis"
+      },
+      "radius": {
+        "type": "number",
+        "default": 1,
+        "minimum": 0.001,
+        "description": "Radius of the cylinder"
+      },
+      "location": {
+        "type": "array",
+        "items": {
+          "type": "number"
+        },
+        "default": [
+          0,
+          0,
+          0
+        ],
+        "maxItems": 3,
+        "minItems": 3,
+        "description": "Location [x, y, z] where to place the cylinder"
+      },
+      "vertices": {
+        "type": "integer",
+        "default": 32,
+        "maximum": 512,
+        "minimum": 3,
+        "description": "Number of vertices in the base circle"
+      },
+      "end_fill_type": {
+        "enum": [
+          "NOTHING",
+          "NGON",
+          "TRIFAN"
+        ],
+        "type": "string",
+        "default": "NGON",
+        "description": "Type of end cap fill: NOTHING (open ends), NGON (single polygon), TRIFAN (triangulated)"
+      }
+    },
+    "additionalProperties": false
+  },
+  "example_usage": "Create a 16-sided tube at position (5,0,0): {vertices: 16, radius: 1.5, depth: 3.0, location: [5,0,0], end_fill_type: 'NOTHING', name: 'Tube'}",
+  "expected_result": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of created object"
+          },
+          "type": {
+            "const": "MESH",
+            "type": "string"
+          },
+          "location": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3
+          },
+          "face_count": {
+            "type": "integer",
+            "description": "Number of faces (varies with vertices and end_fill_type)"
+          },
+          "vertex_count": {
+            "type": "integer",
+            "description": "Number of vertices"
+          }
+        }
+      }
+    }
+  },
+  "blender_pseudocode": [
+    "# Step 1: Call primitive operator",
+    "bpy.ops.mesh.primitive_cylinder_add(",
+    "    vertices=vertices,",
+    "    radius=radius,",
+    "    depth=depth,",
+    "    location=location,",
+    "    end_fill_type=end_fill_type",
+    ")",
+    "",
+    "# Step 2: Get created object",
+    "obj = bpy.context.active_object",
+    "",
+    "# Step 3: Rename if name provided",
+    "if name:",
+    "    obj.name = name",
+    "",
+    "# Step 4: Return object metadata",
+    "return {",
+    "    'name': obj.name,",
+    "    'type': obj.type,",
+    "    'location': list(obj.location),",
+    "    'vertex_count': len(obj.data.vertices),",
+    "    'face_count': len(obj.data.polygons)",
+    "}"
+  ],
+  "validation_tests": {
+    "blender_version": "5.0.0",
+    "api_tested_with": "blender:exec-python",
+    "test_date": "2025-12-28",
+    "test_results": [
+      "Test 1: default_params - SUCCESS (32 verts)",
+      "Test 2: custom_params (vertices=16, radius=2.5, depth=4.0) - SUCCESS",
+      "Test 3: open_ends (end_fill_type=NOTHING) - SUCCESS"
+    ]
+  }
+}

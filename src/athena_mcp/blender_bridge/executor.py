@@ -67,6 +67,88 @@ def add_cube(args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return error_response(str(exc), code="bridge_error")
 
 
+def add_cylinder(args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    bpy = _require_bpy()
+
+    args = args or {}
+    name = args.get("name")
+    vertices = int(args.get("vertices", 32))
+    radius = float(args.get("radius", 1.0))
+    depth = float(args.get("depth", 2.0))
+    location = args.get("location", [0, 0, 0])
+    end_fill_type = args.get("end_fill_type", "NGON")
+
+    try:
+        # Call Blender operator
+        bpy.ops.mesh.primitive_cylinder_add(
+            vertices=vertices,
+            radius=radius,
+            depth=depth,
+            location=location,
+            end_fill_type=end_fill_type,
+        )
+
+        # Get created object
+        obj = bpy.context.active_object
+
+        # Rename if name provided
+        if name:
+            obj.name = name
+
+        # Return object metadata
+        return ok_response(
+            result={
+                "name": obj.name,
+                "type": obj.type,
+                "location": list(obj.location),
+                "vertex_count": len(obj.data.vertices),
+                "face_count": len(obj.data.polygons),
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def add_sphere(args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    bpy = _require_bpy()
+
+    args = args or {}
+    name = args.get("name")
+    radius = float(args.get("radius", 1.0))
+    location = args.get("location", [0, 0, 0])
+    segments = int(args.get("segments", 32))
+    ring_count = int(args.get("ring_count", 16))
+
+    try:
+        # Call Blender operator
+        bpy.ops.mesh.primitive_uv_sphere_add(
+            segments=segments,
+            ring_count=ring_count,
+            radius=radius,
+            location=location,
+        )
+
+        # Get created object
+        obj = bpy.context.active_object
+
+        # Rename if name provided
+        if name:
+            obj.name = name
+
+        # Return object metadata
+        return ok_response(
+            result={
+                "name": obj.name,
+                "type": obj.type,
+                "location": list(obj.location),
+                "vertex_count": len(obj.data.vertices),
+                "face_count": len(obj.data.polygons),
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
 def _extract_location(args: Dict[str, Any]) -> Optional[List[float]]:
     if "location" in args and isinstance(args["location"], list) and len(args["location"]) == 3:
         return args["location"]
@@ -1042,3 +1124,44 @@ def validate_tool(args: Dict[str, Any]) -> Dict[str, Any]:
             "details": {"ops": statuses, "reason": reason},
         }
     )
+
+
+def exec_python(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute arbitrary Python code in Blender context for API testing.
+
+    WARNING: This is a TESTING tool - code is executed without sandboxing.
+    Only use for API exploration and validation.
+    """
+    bpy = _require_bpy()
+    code = args.get("code")
+
+    if not code or not isinstance(code, str):
+        return error_response("code parameter required (string)", code="bad_request")
+
+    try:
+        # Create a namespace with bpy and common imports
+        namespace = {
+            "bpy": bpy,
+            "bmesh": __import__("bmesh"),
+            "mathutils": __import__("mathutils"),
+        }
+
+        # Execute code and capture result
+        exec(code, namespace)
+
+        # Extract result if it was set
+        result = namespace.get("result", None)
+
+        return ok_response(
+            result={
+                "executed": True,
+                "result": result,
+                "namespace_keys": [k for k in namespace.keys() if not k.startswith("__")],
+            }
+        )
+    except Exception as exc:
+        return error_response(
+            f"Python execution failed: {str(exc)}",
+            code="execution_error",
+            details={"exception_type": type(exc).__name__},
+        )

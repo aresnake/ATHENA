@@ -36,7 +36,7 @@ def test_duplicate_selection_defaults():
 
 def test_scene_snapshot_defaults():
     tools = {t.name: t for t in registry.TOOLS}
-    schema = tools["blender-scene-snapshot"].input_schema
+    schema = tools["blender-diag-scene-snapshot"].input_schema
     props = schema.get("properties", {})
     assert props["include_mesh_stats"]["default"] is True
     assert props["max_objects"]["default"] == 200
@@ -46,7 +46,7 @@ def test_scene_snapshot_defaults():
 
 def test_object_snapshot_defaults():
     tools = {t.name: t for t in registry.TOOLS}
-    schema = tools["blender-object-snapshot"].input_schema
+    schema = tools["blender-diag-object-snapshot"].input_schema
     props = schema.get("properties", {})
     assert props["include_materials"]["default"] is True
     assert props["include_modifiers"]["default"] is True
