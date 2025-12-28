@@ -10,7 +10,7 @@ from ..tools import call_tool, list_tools
 from .types import jsonrpc_error, jsonrpc_result
 
 LOGGER = logging.getLogger("athena_mcp.stdio")
-PROTOCOL_VERSION = "0.1.0"
+PROTOCOL_VERSION = "2024-11-05"
 
 
 def _read_line(stream: TextIO) -> str | None:
@@ -39,8 +39,6 @@ def _validate_request(payload: Any) -> tuple[Any, Any, Dict[str, Any], Dict[str,
         return None, None, {}, jsonrpc_error(None, -32600, "Invalid Request")
     if payload.get("jsonrpc") != "2.0":
         return payload.get("id"), None, {}, jsonrpc_error(payload.get("id"), -32600, "Invalid Request")
-    if "id" not in payload:
-        return None, None, {}, jsonrpc_error(None, -32600, "Request id is required")
 
     request_id = payload.get("id")
     method = payload.get("method")
@@ -127,6 +125,11 @@ def serve_stdio(stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout) -> None:
         request_id, method, params, error = _validate_request(payload)
         if error:
             _write_json_line(stdout, error)
+            continue
+
+        # Notifications (no id) are valid but don't require a response
+        if request_id is None:
+            LOGGER.debug(f"Received notification: {method}")
             continue
 
         try:
