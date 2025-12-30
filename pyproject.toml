@@ -5,7 +5,9 @@ description = "Minimal MCP server with Blender bridge"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Athena Team" }]
-dependencies = []
+dependencies = [
+    "Pillow>=10.0.0",  # Required for vision tools (image manipulation, compositing)
+]
 
 [project.optional-dependencies]
 test = [
