@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import atexit
 import inspect
 import json
@@ -28,7 +29,20 @@ def _ensure_bpy() -> Any:
     return bpy
 
 
-_WAIT_TIMEOUT = 2.0
+def _get_wait_timeout(default: float = 90.0) -> float:
+    """Return request wait timeout, optionally overridden via env."""
+    env_value = os.getenv("ATHENA_BRIDGE_TIMEOUT") or os.getenv("ATHENA_BLENDER_BRIDGE_TIMEOUT")
+    if env_value:
+        try:
+            # Never allow zero/negative timeouts
+            parsed = max(float(env_value), 0.1)
+            return parsed
+        except ValueError:
+            pass
+    return default
+
+
+_WAIT_TIMEOUT = _get_wait_timeout()
 _DEFAULT_HOST = "127.0.0.1"
 _DEFAULT_PORT = 8765
 
@@ -98,6 +112,18 @@ def _build_dynamic_registry() -> Dict[str, Any]:
         "athena-blender-topology-validate-complete": "topology_validate_complete",
         "athena-blender-measure-batch": "measure_batch",
         "athena-blender-validate-operation": "validate_operation",
+        "athena-blender-viewport-diagnostics": "viewport_diagnostics",
+
+        # Athena viewport tools
+        "athena-viewport-diff-comparison": "viewport_diff_comparison",
+        "athena-viewport-annotate-markup": "viewport_annotate_markup",
+        "athena-validate-operation-visual": "validate_operation_visual",
+        "athena-viewport-selection-isolate-capture": "viewport_selection_isolate_capture",
+        "athena-viewport-measurement-overlay": "viewport_measurement_overlay",
+        "athena-viewport-compare-matrix": "viewport_compare_matrix",
+        "athena-viewport-geometry-heatmap": "viewport_geometry_heatmap",
+        "athena-viewport-context-aware-capture": "viewport_context_aware_capture",
+        "athena-viewport-xray-section-view": "viewport_xray_section_view",
     }
 
     # Add manual aliases
