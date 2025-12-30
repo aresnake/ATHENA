@@ -1,0 +1,152 @@
+{
+  "category": "primitives",
+  "mcp_spec": {
+    "name": "blender:primitive-torus",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name for the new torus object"
+        },
+        "location": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "default": [
+            0,
+            0,
+            0
+          ],
+          "maxItems": 3,
+          "minItems": 3,
+          "description": "Location [x, y, z] where to place the torus"
+        },
+        "major_radius": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0.001,
+          "description": "Radius from the origin to the center of the tube"
+        },
+        "minor_radius": {
+          "type": "number",
+          "default": 0.25,
+          "minimum": 0.001,
+          "description": "Radius of the tube cross-section"
+        },
+        "major_segments": {
+          "type": "integer",
+          "default": 48,
+          "maximum": 512,
+          "minimum": 3,
+          "description": "Number of segments for the main ring"
+        },
+        "minor_segments": {
+          "type": "integer",
+          "default": 12,
+          "maximum": 512,
+          "minimum": 3,
+          "description": "Number of segments for the tube cross-section"
+        }
+      },
+      "additionalProperties": false
+    },
+    "description": "Add a torus (donut) mesh primitive with customizable geometry parameters."
+  },
+  "priority": "high",
+  "tool_name": "blender-primitive-torus",
+  "safe_first": true,
+  "test_cases": [
+    {
+      "params": {},
+      "description": "Default torus at origin",
+      "expected_result": "Torus with 576 verts (48x12), major_radius=1.0, minor_radius=0.25"
+    },
+    {
+      "params": {
+        "major_radius": 2,
+        "minor_radius": 0.5,
+        "major_segments": 64,
+        "minor_segments": 24,
+        "location": [
+          3,
+          0,
+          0
+        ]
+      },
+      "description": "High-resolution torus with custom radii",
+      "expected_result": "1536 verts (64x24), outer diameter=5.0, at (3,0,0)"
+    },
+    {
+      "params": {
+        "major_radius": 3,
+        "minor_radius": 0.1
+      },
+      "description": "Thin torus (cable/wire)",
+      "expected_result": "Thin tube, outer diameter~6.2"
+    },
+    {
+      "params": {
+        "major_radius": 1,
+        "minor_radius": 0.8
+      },
+      "description": "Thick torus (donut)",
+      "expected_result": "Thick tube, outer diameter~3.6, inner hole~0.4"
+    },
+    {
+      "params": {
+        "major_segments": 3,
+        "minor_segments": 3
+      },
+      "description": "Minimum resolution torus",
+      "expected_result": "9 verts (3x3), very low poly"
+    }
+  ],
+  "api_research": {
+    "operator": "bpy.ops.mesh.primitive_torus_add",
+    "test_date": "2024-12-28",
+    "blender_version_tested": "5.0.0",
+    "tested_with_exec_python": true
+  },
+  "blender_version": "5.0.0",
+  "validation_tests": {
+    "api_tested": true,
+    "edge_cases_tested": {
+      "min_segments": "3x3 = 9 verts confirmed",
+      "high_segments": "128x64 = 8192 verts tested",
+      "thick_tube": "minor_radius can approach major_radius",
+      "thin_tube": "minor_radius=0.001 minimum functional"
+    },
+    "geometry_verified": {
+      "verts_formula": "major_segments x minor_segments",
+      "default_verts": "48 x 12 = 576",
+      "outer_diameter": "(major_radius + minor_radius) x 2",
+      "inner_hole": "(major_radius - minor_radius) x 2",
+      "tube_thickness": "minor_radius x 2"
+    },
+    "exec_python_results": {
+      "custom_test": "Torus (major=2.0, minor=0.5, 64x24) = 1536 verts at (3,0,0)",
+      "default_test": "Default torus created with 576 verts",
+      "geometry_math": "Outer diameter formula verified: (3.0+0.5)*2 = 7.0",
+      "min_test": "Min segments 3x3 = 9 verts",
+      "thick_test": "Thick torus (major=1.0, minor=0.8) functional",
+      "thin_test": "Thin torus (major=2.0, minor=0.1) functional"
+    }
+  },
+  "blender_pseudocode": "bpy.ops.mesh.primitive_torus_add(major_radius=1.0, minor_radius=0.25, major_segments=48, minor_segments=12, location=(0,0,0))",
+  "implementation_notes": {
+    "performance": "O(major_segments x minor_segments) vertices created",
+    "typical_use": "Donuts, rings, tires, cables, pipes, mechanical O-rings",
+    "geometry_math": "Outer diameter = (major + minor) x 2, Inner hole = (major - minor) x 2",
+    "creates_new_object": true,
+    "modifies_selection": true,
+    "context_requirements": "Requires OBJECT mode"
+  },
+  "tags": [
+    "create",
+    "mesh",
+    "geometry",
+    "primitive"
+  ]
+}

@@ -1,0 +1,135 @@
+# Athena MCP + Blender Bridge
+
+Minimal MCP server with HTTP + stdio transports and a Blender HTTP bridge. Tool implementations are routed through a bridge client and are safe to import without Blender.
+
+## Tool Discovery & Organization
+
+ATHENA MCP organizes 42 tools using:
+- **Categories**: primitives, mesh, object, scene, selection, mode, diag, dev
+- **Tags**: create, edit, select, transform, query, diagnostic, etc.
+- **Safety levels**: safe-first (headless OK) vs view3d-required
+
+### Filtering & Search
+
+```python
+from athena_mcp.tools import registry
+
+# Filter by category
+mesh_tools = registry.filter_tools(category="mesh")
+print(f"Found {len(mesh_tools)} mesh tools")
+
+# Filter by tags
+select_tools = registry.filter_tools(tags=["select"])
+print(f"Found {len(select_tools)} selection tools")
+
+# Full-text search
+results = registry.search_tools("extrude")
+print(f"Found {len(results)} tools matching 'extrude'")
+
+# Get all categories
+categories = registry.get_categories()
+print(f"Available categories: {categories}")
+
+# Get all tags
+tags = registry.get_tags()
+print(f"Available tags: {tags}")
+```
+
+### Tool Naming Convention
+
+All tools follow a strict naming convention for consistency:
+- Blender tools: `blender-<category>-<operation>[-variant]`
+  - Examples: `blender-primitive-cube`, `blender-mesh-select-loop`
+- Standalone tools: `dev-<operation>`
+  - Examples: `dev-submit-tool-spec`, `dev-exec-python`
+
+### Categories
+
+| Category  | Count | Description                                         |
+|-----------|-------|-----------------------------------------------------|
+| primitives| 5     | Mesh primitive creation (cube, sphere, cylinder, cone, torus) |
+| mesh      | 24    | Mesh editing & selection operations                 |
+| object    | 1     | Object-level transformations                        |
+| scene     | 1     | Scene-level queries                                 |
+| selection | 3     | Selection operations (all/none/invert)              |
+| mode      | 2     | Mode switching (object/edit/etc)                    |
+| diag      | 4     | Diagnostic & inspection tools                       |
+| dev       | 2     | Developer utilities                                 |
+
+## Setup
+- Create/activate the virtual environment (already present as `.venv`): `.\.venv\Scripts\Activate.ps1`
+- Install test extras: `pip install .[test]`
+
+## Run the MCP server
+- HTTP transport: `python -m athena_mcp.mcp_core.server --http --host 127.0.0.1 --port 9000`
+- Stdio transport: `python -m athena_mcp.mcp_core.server --stdio`
+- Both transports: `python -m athena_mcp.mcp_core.server --http --stdio`
+- The server expects the Blender bridge on `127.0.0.1:8765` by default; override with `--bridge-host/--bridge-port`.
+
+## Run the Blender bridge
+- Headless: `blender.exe --factory-startup --background --python src/athena_mcp/blender_bridge/provider_http.py`
+- UI session: `blender.exe --factory-startup --python src/athena_mcp/blender_bridge/provider_http.py`
+- The bridge hosts `http://127.0.0.1:8765` with `/health` and `/exec` endpoints and executes requests on Blender's main thread via a timer + queue. The HTTP server runs in a background daemon thread so the Blender UI stays responsive; requests wait briefly for results and return a timeout error if the main thread does not complete in time.
+
+## Bridge URL
+- MCP calls forward to the Blender bridge at `ATHENA_BRIDGE_URL` (default `http://127.0.0.1:8765`). Override per-process: `set ATHENA_BRIDGE_URL=http://127.0.0.1:9876` before starting the MCP server.
+
+## Verify with PowerShell
+```powershell
+Invoke-RestMethod -Method Get http://127.0.0.1:9000/health
+Invoke-RestMethod -Method Get http://127.0.0.1:9000/tools/list
+Invoke-RestMethod -Method Post http://127.0.0.1:9000/tools/call -Body '{"name":"blender-scene-list-objects","args":{}}' -ContentType 'application/json'
+# Sample responses (flattened):
+# { "ok": true, "result": { "objects": ["Cube"], "count": 1 } }
+# { "ok": true, "result": { "name": "Cube", "location": [0,0,0], "size": 1.0 } }
+```
+
+## Live modeling script (example sequence)
+1. Add a cube: `{"name":"blender-primitive-cube","args":{"name":"Cube"}}`
+2. Enter edit mode: `{"name":"blender-mode-set","args":{"mode":"EDIT","name":"Cube"}}`
+3. Select all: `{"name":"blender-select-all","args":{}}`
+4. Bevel edges: `{"name":"blender-mesh-bevel","args":{"offset":0.02,"segments":1}}`
+5. Add loop cut: `{"name":"blender-mesh-loop-cut","args":{"cuts":1}}`
+6. Inset faces: `{"name":"blender-mesh-inset","args":{"thickness":0.05,"depth":0.0}}`
+7. Extrude up: `{"name":"blender-mesh-extrude","args":{"x":0,"y":0,"z":1}}`
+8. Return to object mode: `{"name":"blender-mode-set","args":{"mode":"OBJECT","name":"Cube"}}`
+
+## Pack 03 selection (example chain)
+- Set edit mode: `{"name":"blender-mode-set","args":{"mode":"EDIT","name":"Cube"}}`
+- Switch to edge selection: `{"name":"blender-mode-selection-set","args":{"mode":"EDGE"}}`
+- Select loop (extend): `{"name":"blender-mesh-select-loop","args":{"extend":true}}`
+- Bevel or extrude after selection as desired.
+
+## SAFE-FIRST vs VIEW3D-REQUIRED
+- SAFE-FIRST tools (e.g., blender-mesh-set-selection, blender-mesh-bisect-plane, blender-mesh-delete-by-index) operate via bmesh data and work headless or UI.
+- VIEW3D-REQUIRED tools rely on Blender operators that may need a 3D View context (loop/ring select). Use `blender-diag-capabilities` / `blender-diag-validate-tool` to check availability.
+- Example (SAFE-FIRST): set edit mode -> set-selection to verts -> bisect-plane -> delete-by-index -> continue modeling.
+
+## Pack 05 SAFE-FIRST (selection transforms)
+- Translate selection: `{"name":"blender-mesh-translate-selection","args":{"dx":1,"dy":0,"dz":0}}`
+- Scale selection (auto-pivot): `{"name":"blender-mesh-scale-selection","args":{"sx":1,"sy":2,"sz":1}}`
+- Extrude selection: `{"name":"blender-mesh-extrude-selection","args":{"dx":0,"dy":0,"dz":1}}`
+- Inset selection: `{"name":"blender-mesh-inset-selection","args":{"thickness":0.05,"depth":0.0}}`
+- Select by normal: `{"name":"blender-mesh-select-by-normal","args":{"axis":"Z","threshold":0.9}}`
+
+## Pack 06 SAFE-FIRST (duplicate)
+- Duplicate selection with offset: `{"name":"blender-mesh-duplicate-selection","args":{"dx":0,"dy":0,"dz":1}}`
+- Sample chain: select top face by normal -> duplicate-selection dz=1 -> inset-selection -> extrude-selection -> set-mode OBJECT
+
+## Pack 07 SAFE-FIRST (snapshots)
+- Scene snapshot: `{"name":"blender-diag-scene-snapshot","args":{}}` (respects limits and includes mesh/material stats)
+- Object snapshot: `{"name":"blender-diag-object-snapshot","args":{"name":"Cube"}}`
+- Sample chain: validate tool -> scene snapshot -> object snapshot -> continue with SAFE-FIRST modeling.
+
+## Tests
+- Run `python -m pytest` (no Blender required). Tests cover tool listing, tool call routing with a mocked bridge, and an HTTP server health smoke test.
+
+## Audit
+- Execute `powershell -File tools/audit.ps1` to print git status, Python version, pytest run, port checks, and example REST commands.
+
+## Troubleshooting
+- Port 9000 or 8765 in use: stop the conflicting process (`netstat -ano | findstr ":9000"`), or choose alternate ports via `--port` / `--bridge-port`.
+- MCP server cannot reach Blender bridge: confirm the bridge process is running and reachable at `127.0.0.1:8765` (check `/health`).
+- Blender operations fail: ensure the bridge is started with `--factory-startup` to avoid add-ons interfering, and that tool payloads match the documented schemas.
+- Running the bridge script directly in Blender: the bridge is self-contained and adjusts `sys.path` so you can pass the absolute path to `provider_http.py` without installing `athena_mcp`.
+- UI still freezes: confirm you're using the provided `provider_http.py` which starts its HTTP server on a background thread; timeouts in `/exec` responses indicate the main-thread queue isn't processing quickly enough (ensure the timer is running and the scene isn't blocked by modal operations).

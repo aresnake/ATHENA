@@ -1,0 +1,22 @@
+[project]
+name = "athena-mcp"
+version = "0.1.0"
+description = "Minimal MCP server with Blender bridge"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Athena Team" }]
+dependencies = []
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+    "requests>=2.31",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
