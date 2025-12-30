@@ -59,22 +59,38 @@ def _build_dynamic_registry() -> Dict[str, Any]:
 
     # Manual aliases for backward compatibility and special cases
     _MANUAL_ALIASES = {
-        # Legacy names
-        "blender-list-objects": "list_objects",
-        "blender-scene-list-objects": "list_objects",
+        # Primitives - official names use "primitive-" prefix
+        "blender-primitive-cube": "add_cube",
+        "blender-primitive-cylinder": "add_cylinder",
+        "blender-primitive-sphere": "add_sphere",
+        # Note: add_cone and add_torus not implemented yet
+
+        # Legacy primitive names (backward compatibility)
         "blender-add-cube": "add_cube",
         "blender-add-cylinder": "add_cylinder",
         "blender-add-sphere": "add_sphere",
-        "blender-move-object": "move_object",
-        "blender-object-move": "move_object",  # Preferred name
-        "blender-set-mode": "set_mode",
-        "blender-mode-set": "set_mode",  # Preferred name
-        "blender-set-selection-mode": "set_selection_mode",
-        "blender-mode-selection-set": "set_selection_mode",  # Preferred name
-        "blender-diag-validate-tool": "validate_tool",
 
         # Scene tools
+        "blender-list-objects": "list_objects",
+        "blender-scene-list-objects": "list_objects",
         "blender-scene-query-complete": "scene_query_complete",
+
+        # Object operations - preferred names
+        "blender-object-move": "move_object",
+        "blender-move-object": "move_object",  # Legacy
+
+        # Mode operations - preferred names
+        "blender-mode-set": "set_mode",
+        "blender-set-mode": "set_mode",  # Legacy
+        "blender-mode-selection-set": "set_selection_mode",
+        "blender-set-selection-mode": "set_selection_mode",  # Legacy
+
+        # Diagnostics
+        "blender-diag-validate-tool": "validate_tool",
+        "blender-diag-capabilities": "capabilities",
+        "blender-diag-scene-snapshot": "scene_snapshot",
+        "blender-diag-object-snapshot": "object_snapshot",
+        "blender-dev-exec-python": "exec_python",
 
         # Athena vision tools (use athena- prefix)
         "athena-blender-scene-query-complete": "scene_query_complete",
