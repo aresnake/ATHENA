@@ -7,7 +7,8 @@ def test_filter_by_category():
 
     mesh_tools = registry.filter_tools(category="mesh")
     assert len(mesh_tools) > 0
-    assert all("mesh" in t["name"] for t in mesh_tools)
+    # Verify all returned tools are actually in the mesh category
+    assert all(t.get("category") == "mesh" for t in mesh_tools)
 
 
 def test_filter_by_tags():

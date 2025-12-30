@@ -5,11 +5,11 @@ from athena_mcp.tools import registry
 
 
 ATHENA_VISION_TOOLS = [
-    "athena:blender-scene-query-complete",
-    "athena:blender-spatial-analyze",
-    "athena:blender-topology-validate-complete",
-    "athena:blender-measure-batch",
-    "athena:blender-validate-operation",
+    "athena-blender-scene-query-complete",
+    "athena-blender-spatial-analyze",
+    "athena-blender-topology-validate-complete",
+    "athena-blender-measure-batch",
+    "athena-blender-validate-operation",
 ]
 
 
@@ -31,19 +31,19 @@ def test_scene_query_complete_strips_none(monkeypatch):
 
     monkeypatch.setattr(registry, "_bridge_request", _mock_bridge)
 
-    resp = tools.call_tool("athena:blender-scene-query-complete", {"include_topology": None})
+    resp = tools.call_tool("athena-blender-scene-query-complete", {"include_topology": None})
     assert resp["ok"] is True
-    assert calls["tool"] == "athena:blender-scene-query-complete"
+    assert calls["tool"] == "athena-blender-scene-query-complete"
     assert "include_topology" not in calls["args"]
 
 
 @pytest.mark.parametrize(
     "tool_name,payload",
     [
-        ("athena:blender-spatial-analyze", {"object_names": None, "queries": None}),
-        ("athena:blender-topology-validate-complete", {"object_name": "Cube", "checks": None}),
-        ("athena:blender-measure-batch", {"measurements": [{"type": "DISTANCE", "from": {"object": "A"}, "to": {"object": "B"}}]}),
-        ("athena:blender-validate-operation", {"object_name": "Cube", "expectations": {"manifold": True}}),
+        ("athena-blender-spatial-analyze", {"object_names": None, "queries": None}),
+        ("athena-blender-topology-validate-complete", {"object_name": "Cube", "checks": None}),
+        ("athena-blender-measure-batch", {"measurements": [{"type": "DISTANCE", "from": {"object": "A"}, "to": {"object": "B"}}]}),
+        ("athena-blender-validate-operation", {"object_name": "Cube", "expectations": {"manifold": True}}),
     ],
 )
 def test_athena_tools_forward_to_bridge(monkeypatch, tool_name, payload):

@@ -36,7 +36,7 @@ _TOOL_REGISTRY: Dict[str, Any] = {
     # Scene tools
     "blender-list-objects": executor.list_objects,
     "blender-scene-list-objects": executor.list_objects,
-    "athena:blender-scene-query-complete": executor.scene_query_complete,
+    "athena-blender-scene-query-complete": executor.scene_query_complete,
     "blender-scene-query-complete": executor.scene_query_complete,
     # Primitives
     "blender-add-cube": executor.add_cube,
@@ -142,10 +142,10 @@ _TOOL_REGISTRY: Dict[str, Any] = {
     "blender-uv-cylinder-project": executor.uv_cylinder_project,
     "blender-uv-sphere-project": executor.uv_sphere_project,
     # Vision / validation pack
-    "athena:blender-spatial-analyze": executor.spatial_analyze,
-    "athena:blender-topology-validate-complete": executor.topology_validate_complete,
-    "athena:blender-measure-batch": executor.measure_batch,
-    "athena:blender-validate-operation": executor.validate_operation,
+    "athena-blender-spatial-analyze": executor.spatial_analyze,
+    "athena-blender-topology-validate-complete": executor.topology_validate_complete,
+    "athena-blender-measure-batch": executor.measure_batch,
+    "athena-blender-validate-operation": executor.validate_operation,
     # Collections
     "blender-collection-create": executor.collection_create,
     "blender-collection-add-objects": executor.collection_add_objects,
