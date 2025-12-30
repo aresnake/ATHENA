@@ -641,3 +641,122 @@ BATCH_OPERATION_SCHEMA: JSONDict = {
     "required": ["objects", "operation"],
     "additionalProperties": False,
 }
+
+# Vision / validation tools
+SCENE_QUERY_COMPLETE_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "include_geometry": {"type": "boolean", "default": True},
+        "include_transforms": {"type": "boolean", "default": True},
+        "include_topology": {"type": "boolean", "default": False},
+        "max_objects": {"type": "integer", "minimum": 1, "maximum": 2000, "default": 200},
+    },
+    "required": [],
+    "additionalProperties": False,
+}
+
+SPATIAL_ANALYZE_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "object_names": {
+            "anyOf": [
+                {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                {"type": "null"},
+            ],
+            "default": None,
+        },
+        "queries": {
+            "type": "array",
+            "items": {"enum": ["distances", "alignments", "overlaps", "gaps", "grid_snaps"]},
+            "default": ["distances", "alignments", "grid_snaps"],
+        },
+        "tolerance": {"type": "number", "default": 0.001},
+        "grid_size": {"type": "number", "default": 0.1},
+    },
+    "required": [],
+    "additionalProperties": False,
+}
+
+TOPOLOGY_VALIDATE_COMPLETE_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "object_name": {"type": "string"},
+        "checks": {
+            "type": "array",
+            "items": {"enum": ["manifold", "watertight", "ngons", "triangles", "poles", "loose", "degenerate"]},
+            "default": ["manifold", "watertight", "ngons", "poles", "loose"],
+        },
+        "report_indices": {"type": "boolean", "default": True},
+        "max_indices": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 10},
+    },
+    "required": ["object_name"],
+    "additionalProperties": False,
+}
+
+MEASURE_BATCH_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "measurements": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "type": {"enum": ["DISTANCE", "VOLUME", "AREA", "ANGLE", "ALIGNMENT"]},
+                    "from": {"type": "object"},
+                    "to": {"type": "object"},
+                    "object": {"type": "string"},
+                    "faces": {"type": "array"},
+                    "objects": {"type": "array"},
+                    "axis": {"enum": ["X", "Y", "Z"]},
+                    "tolerance": {"type": "number"},
+                    "constraint": {"enum": ["X_AXIS_ONLY", "Y_AXIS_ONLY", "Z_AXIS_ONLY"]},
+                },
+                "required": ["type"],
+                "additionalProperties": True,
+            },
+            "default": [],
+        }
+    },
+    "required": ["measurements"],
+    "additionalProperties": False,
+}
+
+VALIDATE_OPERATION_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {
+        "object_name": {"type": "string"},
+        "expectations": {
+            "type": "object",
+            "properties": {
+                "manifold": {"type": "boolean"},
+                "watertight": {"type": "boolean"},
+                "no_ngons": {"type": "boolean"},
+                "no_tris": {"type": "boolean"},
+                "symmetry": {
+                    "type": "object",
+                    "properties": {
+                        "axis": {"enum": ["X", "Y", "Z"]},
+                        "tolerance": {"type": "number", "default": 0.001},
+                    },
+                    "required": ["axis"],
+                    "additionalProperties": False,
+                },
+                "alignment": {
+                    "type": "object",
+                    "properties": {
+                        "grid": {"type": "number"},
+                        "objects": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "additionalProperties": False,
+                },
+                "min_face_area": {"type": "number"},
+                "max_edge_angle": {"type": "number"},
+            },
+            "default": {},
+            "additionalProperties": False,
+        },
+        "auto_fix": {"type": "boolean", "default": False},
+    },
+    "required": ["object_name"],
+    "additionalProperties": False,
+}

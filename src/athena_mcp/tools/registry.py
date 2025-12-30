@@ -1067,7 +1067,36 @@ def _tool_blender_batch_operation(args: JSONDict) -> JSONDict:
     return _call_bridge("blender-batch-operation", _clean_args(args))
 
 
+def _tool_athena_scene_query_complete(args: JSONDict) -> JSONDict:
+    return _call_bridge("athena:blender-scene-query-complete", _clean_args(args))
+
+
+def _tool_athena_spatial_analyze(args: JSONDict) -> JSONDict:
+    return _call_bridge("athena:blender-spatial-analyze", _clean_args(args))
+
+
+def _tool_athena_topology_validate_complete(args: JSONDict) -> JSONDict:
+    return _call_bridge("athena:blender-topology-validate-complete", _clean_args(args))
+
+
+def _tool_athena_measure_batch(args: JSONDict) -> JSONDict:
+    return _call_bridge("athena:blender-measure-batch", _clean_args(args))
+
+
+def _tool_athena_validate_operation(args: JSONDict) -> JSONDict:
+    return _call_bridge("athena:blender-validate-operation", _clean_args(args))
+
+
 TOOLS: List[ToolDefinition] = [
+    ToolDefinition(
+        name="athena:blender-scene-query-complete",
+        description="Get complete scene state with geometry, transforms, bounds, and hierarchy metadata.",
+        input_schema=specs_v2.SCENE_QUERY_COMPLETE_SCHEMA,
+        impl=_tool_athena_scene_query_complete,
+        category="scene",
+        tags=["query", "diagnostic", "vision"],
+        safety_level="safe-first",
+    ),
     ToolDefinition(
         name="blender-scene-list-objects",
         description="List object names in the current Blender scene.",
@@ -2201,6 +2230,42 @@ TOOLS: List[ToolDefinition] = [
         impl=_tool_blender_curve_to_mesh,
         category="curve",
         tags=["curve", "convert"],
+        safety_level="safe-first",
+    ),
+    ToolDefinition(
+        name="athena:blender-spatial-analyze",
+        description="Analyze spatial relationships (distances, alignments, overlaps, grid snaps) for scene objects.",
+        input_schema=specs_v2.SPATIAL_ANALYZE_SCHEMA,
+        impl=_tool_athena_spatial_analyze,
+        category="scene",
+        tags=["analysis", "diagnostic", "vision"],
+        safety_level="safe-first",
+    ),
+    ToolDefinition(
+        name="athena:blender-topology-validate-complete",
+        description="Validate mesh topology for manifold, watertightness, ngons, poles, loose geometry, and degenerates.",
+        input_schema=specs_v2.TOPOLOGY_VALIDATE_COMPLETE_SCHEMA,
+        impl=_tool_athena_topology_validate_complete,
+        category="mesh",
+        tags=["validation", "topology", "diagnostic"],
+        safety_level="safe-first",
+    ),
+    ToolDefinition(
+        name="athena:blender-measure-batch",
+        description="Execute multiple measurements (distance, volume, area, alignment) in one call.",
+        input_schema=specs_v2.MEASURE_BATCH_SCHEMA,
+        impl=_tool_athena_measure_batch,
+        category="measurement",
+        tags=["measurement", "analysis", "batch"],
+        safety_level="safe-first",
+    ),
+    ToolDefinition(
+        name="athena:blender-validate-operation",
+        description="Validate mesh/object against manifold, watertight, symmetry, alignment, and size expectations.",
+        input_schema=specs_v2.VALIDATE_OPERATION_SCHEMA,
+        impl=_tool_athena_validate_operation,
+        category="validation",
+        tags=["validation", "quality", "diagnostic"],
         safety_level="safe-first",
     ),
     ToolDefinition(

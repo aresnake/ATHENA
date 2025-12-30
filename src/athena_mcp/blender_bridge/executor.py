@@ -3990,3 +3990,558 @@ def material_assign_fixed(args: Dict[str, Any]) -> Dict[str, Any]:
         })
     except Exception as exc:
         return error_response(str(exc), code="bridge_error")
+
+
+def _bounds_world(obj) -> tuple[list[float] | None, list[float] | None, list[float] | None]:
+    """Compute world-space bounds for an object."""
+    try:
+        from mathutils import Vector  # type: ignore  # pragma: no cover - Blender runtime
+    except Exception:
+        return None, None, None
+
+    try:
+        corners = [obj.matrix_world @ Vector(corner) for corner in getattr(obj, "bound_box", [])]
+        if not corners:
+            return None, None, None
+        mins = [min(c[i] for c in corners) for i in range(3)]
+        maxs = [max(c[i] for c in corners) for i in range(3)]
+        center = [(mins[i] + maxs[i]) / 2.0 for i in range(3)]
+        return mins, maxs, center
+    except Exception:
+        return None, None, None
+
+
+def scene_query_complete(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Get complete scene state with geometry, bounds, and transforms."""
+    bpy = _require_bpy()
+    args = args or {}
+    include_geometry = bool(args.get("include_geometry", True))
+    include_transforms = bool(args.get("include_transforms", True))
+    include_topology = bool(args.get("include_topology", False))
+    max_objects = int(args.get("max_objects", 200))
+
+    try:
+        objects_payload: list[Dict[str, Any]] = []
+        ctx = bpy.context
+
+        for obj in list(bpy.data.objects)[:max_objects]:
+            obj_data: Dict[str, Any] = {"name": obj.name, "type": obj.type}
+
+            if include_transforms:
+                try:
+                    obj_data["transform"] = {
+                        "location": list(obj.location),
+                        "rotation_euler": list(getattr(obj, "rotation_euler", [])),
+                        "scale": list(obj.scale),
+                        "world_matrix": [list(row) for row in obj.matrix_world],
+                    }
+                except Exception:
+                    pass
+
+            bounds_min, bounds_max, bounds_center = _bounds_world(obj)
+            if bounds_min and bounds_max:
+                obj_data["bounds"] = {"min": bounds_min, "max": bounds_max, "center": bounds_center}
+
+            if include_geometry and obj.type == "MESH" and obj.data:
+                mesh = obj.data
+                obj_data["geometry"] = {
+                    "vertices_count": len(mesh.vertices),
+                    "edges_count": len(mesh.edges),
+                    "faces_count": len(mesh.polygons),
+                }
+                obj_data["materials"] = [mat.name for mat in getattr(mesh, "materials", []) if mat]
+                obj_data["modifiers"] = [{"name": mod.name, "type": mod.type} for mod in getattr(obj, "modifiers", [])]
+
+                if include_topology:
+                    import bmesh  # type: ignore  # pragma: no cover - Blender runtime
+
+                    bm = bmesh.new()
+                    try:
+                        bm.from_mesh(mesh)
+                        boundary_edges = [e.index for e in bm.edges if e.is_boundary]
+                        ngons = [f.index for f in bm.faces if len(f.verts) > 4]
+                        obj_data["topology"] = {
+                            "manifold": all(e.is_manifold for e in bm.edges),
+                            "boundary_edges": len(boundary_edges),
+                            "ngons": len(ngons),
+                        }
+                    finally:
+                        bm.free()
+
+            obj_data["parent"] = obj.parent.name if obj.parent else None
+            obj_data["children"] = [child.name for child in getattr(obj, "children", [])]
+            objects_payload.append(obj_data)
+
+        result = {
+            "blender_version": getattr(bpy.app, "version_string", "unknown"),
+            "scene_name": getattr(ctx.scene, "name", "Scene"),
+            "active_object": ctx.view_layer.objects.active.name if ctx.view_layer.objects.active else None,
+            "selected_objects": [o.name for o in getattr(ctx, "selected_objects", [])],
+            "objects": objects_payload,
+            "scene_data": {
+                "cursor_location": list(getattr(ctx.scene.cursor, "location", [0, 0, 0])),
+                "frame_current": int(getattr(ctx.scene, "frame_current", 0)),
+            },
+        }
+        return ok_response(result=result)
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def _distance_between(obj_a, obj_b):
+    try:
+        return float((obj_a.location - obj_b.location).length), list(obj_b.location - obj_a.location)
+    except Exception:
+        return None, None
+
+
+def _grid_snapped(location, grid_size: float, tolerance: float) -> bool:
+    for coord in location:
+        remainder = abs(coord) % grid_size if grid_size else 0.0
+        delta = min(remainder, abs(grid_size - remainder)) if grid_size else abs(remainder)
+        if delta > tolerance:
+            return False
+    return True
+
+
+def spatial_analyze(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Analyze spatial relationships between objects."""
+    bpy = _require_bpy()
+    args = args or {}
+    names = args.get("object_names")
+    queries = args.get("queries") or ["distances", "alignments", "grid_snaps"]
+    tolerance = float(args.get("tolerance", 0.001))
+    grid_size = float(args.get("grid_size", 0.1))
+
+    if names is None:
+        candidates = [obj for obj in bpy.data.objects if obj.type == "MESH"]
+    elif isinstance(names, list):
+        candidates = []
+        for name in names:
+            obj = bpy.data.objects.get(name)
+            if obj is None:
+                return error_response(f"Object '{name}' not found", code="not_found")
+            candidates.append(obj)
+    else:
+        return error_response("object_names must be array or null", code="bad_request")
+
+    queries_set = set(queries)
+    analyzed_names = [obj.name for obj in candidates]
+    result: Dict[str, Any] = {"analyzed_objects": analyzed_names}
+
+    try:
+        if "distances" in queries_set:
+            distances = []
+            for i, obj_a in enumerate(candidates):
+                for obj_b in candidates[i + 1 :]:
+                    distance, vector = _distance_between(obj_a, obj_b)
+                    if distance is None:
+                        continue
+                    distances.append({"from": obj_a.name, "to": obj_b.name, "distance": distance, "vector": vector})
+            result["distances"] = distances
+
+        if "alignments" in queries_set:
+            alignments = []
+            axes = {"X": 0, "Y": 1, "Z": 2}
+            for i, obj_a in enumerate(candidates):
+                for obj_b in candidates[i + 1 :]:
+                    for axis, idx in axes.items():
+                        deviation = abs(obj_a.location[idx] - obj_b.location[idx])
+                        alignments.append(
+                            {
+                                "objects": [obj_a.name, obj_b.name],
+                                "axis": axis,
+                                "tolerance": tolerance,
+                                "deviation": deviation,
+                                "aligned": deviation <= tolerance,
+                            }
+                        )
+            result["alignments"] = alignments
+
+        if "grid_snaps" in queries_set:
+            grid_snaps = []
+            for obj in candidates:
+                snapped = _grid_snapped(obj.location, grid_size, tolerance)
+                grid_snaps.append(
+                    {"object": obj.name, "grid_size": grid_size, "snapped": snapped, "location": list(obj.location)}
+                )
+            result["grid_snaps"] = grid_snaps
+
+        if "overlaps" in queries_set or "gaps" in queries_set:
+            overlaps = []
+            gaps = []
+            for i, obj_a in enumerate(candidates):
+                bounds_a_min, bounds_a_max, _ = _bounds_world(obj_a)
+                if not bounds_a_min or not bounds_a_max:
+                    continue
+                for obj_b in candidates[i + 1 :]:
+                    bounds_b_min, bounds_b_max, _ = _bounds_world(obj_b)
+                    if not bounds_b_min or not bounds_b_max:
+                        continue
+                    intersects = all(
+                        bounds_a_max[idx] >= bounds_b_min[idx] and bounds_b_max[idx] >= bounds_a_min[idx]
+                        for idx in range(3)
+                    )
+                    if intersects and "overlaps" in queries_set:
+                        overlaps.append({"objects": [obj_a.name, obj_b.name], "overlap": True})
+                    elif "gaps" in queries_set:
+                        axis_gaps = []
+                        for idx, axis in enumerate(["X", "Y", "Z"]):
+                            gap_val = 0.0
+                            if bounds_a_max[idx] < bounds_b_min[idx]:
+                                gap_val = bounds_b_min[idx] - bounds_a_max[idx]
+                            elif bounds_b_max[idx] < bounds_a_min[idx]:
+                                gap_val = bounds_a_min[idx] - bounds_b_max[idx]
+                            axis_gaps.append({"axis": axis, "gap": gap_val})
+                        gaps.append({"objects": [obj_a.name, obj_b.name], "gaps": axis_gaps})
+            if "overlaps" in queries_set:
+                result["overlaps"] = overlaps
+            if "gaps" in queries_set:
+                result["gaps"] = gaps
+
+        return ok_response(result=result)
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def topology_validate_complete(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate mesh topology for manifold, watertightness, and degenerates."""
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("object_name"), "MESH")
+    if err:
+        return err
+
+    checks = args.get("checks") or ["manifold", "watertight", "ngons", "poles", "loose"]
+    report_indices = bool(args.get("report_indices", True))
+    max_indices = int(args.get("max_indices", 10))
+
+    import bmesh  # type: ignore  # pragma: no cover - Blender runtime
+
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(obj.data)
+
+        topo_result: Dict[str, Any] = {}
+        issues: list[Dict[str, Any]] = []
+
+        def _record(issue_type: str, indices: list[int]) -> None:
+            if not indices:
+                return
+            payload: Dict[str, Any] = {"type": issue_type, "count": len(indices)}
+            if report_indices:
+                payload["indices"] = indices[:max_indices]
+            issues.append(payload)
+
+        do_all = "all" in checks
+
+        if do_all or "manifold" in checks:
+            manifold_ok = all(e.is_manifold for e in bm.edges)
+            topo_result["manifold"] = manifold_ok
+            if not manifold_ok:
+                bad_edges = [e.index for e in bm.edges if not e.is_manifold]
+                _record("non_manifold_edges", bad_edges)
+
+        if do_all or "watertight" in checks:
+            boundary_edges = [e.index for e in bm.edges if e.is_boundary]
+            watertight_ok = len(boundary_edges) == 0
+            topo_result["watertight"] = watertight_ok
+            if not watertight_ok:
+                _record("boundary_edges", boundary_edges)
+
+        if do_all or "ngons" in checks:
+            ngons = [f.index for f in bm.faces if len(f.verts) > 4]
+            topo_result["ngons"] = len(ngons)
+            _record("ngons", ngons)
+
+        if do_all or "triangles" in checks:
+            tris = [f.index for f in bm.faces if len(f.verts) == 3]
+            topo_result["triangles"] = len(tris)
+            _record("triangles", tris)
+
+        if do_all or "poles" in checks:
+            poles = [v.index for v in bm.verts if len(v.link_edges) > 5]
+            topo_result["poles_5plus"] = len(poles)
+            _record("poles", poles)
+
+        if do_all or "loose" in checks:
+            loose_verts = [v.index for v in bm.verts if len(v.link_edges) == 0]
+            loose_edges = [e.index for e in bm.edges if len(e.link_faces) == 0]
+            topo_result["loose_verts"] = len(loose_verts)
+            topo_result["loose_edges"] = len(loose_edges)
+            _record("loose_verts", loose_verts)
+            _record("loose_edges", loose_edges)
+
+        if do_all or "degenerate" in checks:
+            degenerate_faces = [f.index for f in bm.faces if f.calc_area() < 0.000001]
+            topo_result["degenerate_faces"] = len(degenerate_faces)
+            _record("degenerate_faces", degenerate_faces)
+
+        result = {
+            "object_name": obj.name,
+            "vertex_count": len(bm.verts),
+            "edge_count": len(bm.edges),
+            "face_count": len(bm.faces),
+            "healthy": len(issues) == 0,
+            "topology": topo_result,
+            "issues": issues,
+        }
+        return ok_response(result=result)
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+    finally:
+        bm.free()
+
+
+def measure_batch(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute a batch of measurements in one call."""
+    bpy = _require_bpy()
+    args = args or {}
+    measurements = args.get("measurements") or []
+    results: list[Dict[str, Any]] = []
+    successful = 0
+    failed = 0
+
+    def _get_point(defn: Dict[str, Any]) -> Any:
+        obj_name = defn.get("object")
+        if not obj_name:
+            return None, "object required"
+        obj = bpy.data.objects.get(obj_name)
+        if obj is None:
+            return None, f"Object '{obj_name}' not found"
+        vertex_idx = defn.get("vertex")
+        if vertex_idx is not None:
+            try:
+                vert = obj.data.vertices[int(vertex_idx)]
+                return obj.matrix_world @ vert.co, None
+            except Exception:
+                return None, f"Invalid vertex index for {obj_name}"
+        return obj.location.copy(), None
+
+    try:
+        for index, measurement in enumerate(measurements):
+            entry: Dict[str, Any] = {"index": index, "type": measurement.get("type")}
+            try:
+                mtype = measurement.get("type")
+                if mtype == "DISTANCE":
+                    start, err_a = _get_point(measurement.get("from", {}))
+                    end, err_b = _get_point(measurement.get("to", {}))
+                    if err_a or err_b or start is None or end is None:
+                        raise ValueError(err_a or err_b or "Missing endpoints")
+                    vector = end - start
+                    constraint = measurement.get("constraint")
+                    if constraint == "X_AXIS_ONLY":
+                        vector.y = 0
+                        vector.z = 0
+                    elif constraint == "Y_AXIS_ONLY":
+                        vector.x = 0
+                        vector.z = 0
+                    elif constraint == "Z_AXIS_ONLY":
+                        vector.x = 0
+                        vector.y = 0
+                    entry.update(
+                        {
+                            "value": float(vector.length),
+                            "unit": "m",
+                            "from": measurement.get("from", {}),
+                            "to": measurement.get("to", {}),
+                        }
+                    )
+                elif mtype == "VOLUME":
+                    obj_name = measurement.get("object")
+                    obj, err = _get_object(bpy, obj_name or "", "MESH")
+                    if err:
+                        raise ValueError(err["error"]["message"])
+                    import bmesh  # type: ignore  # pragma: no cover - Blender runtime
+
+                    bm = bmesh.new()
+                    try:
+                        bm.from_mesh(obj.data)
+                        bm.transform(obj.matrix_world)
+                        entry.update({"value": float(abs(bm.calc_volume())), "unit": "m^3", "object": obj.name})
+                    finally:
+                        bm.free()
+                elif mtype == "AREA":
+                    obj_name = measurement.get("object")
+                    obj, err = _get_object(bpy, obj_name or "", "MESH")
+                    if err:
+                        raise ValueError(err["error"]["message"])
+                    faces = measurement.get("faces")
+                    if faces:
+                        polys = [obj.data.polygons[i] for i in faces if i < len(obj.data.polygons)]
+                    else:
+                        polys = obj.data.polygons
+                    area_val = sum(float(p.area) for p in polys)
+                    entry.update({"value": area_val, "unit": "m^2", "object": obj.name})
+                elif mtype == "ALIGNMENT":
+                    objects = measurement.get("objects") or []
+                    axis = measurement.get("axis") or "Z"
+                    tol = float(measurement.get("tolerance", 0.001))
+                    if len(objects) < 2:
+                        raise ValueError("ALIGNMENT requires at least two objects")
+                    axis_idx = {"X": 0, "Y": 1, "Z": 2}.get(axis, 2)
+                    coords = []
+                    for name in objects:
+                        obj = bpy.data.objects.get(name)
+                        if obj is None:
+                            raise ValueError(f"Object '{name}' not found")
+                        coords.append(obj.location[axis_idx])
+                    max_dev = max(coords) - min(coords)
+                    entry.update(
+                        {
+                            "objects": objects,
+                            "axis": axis,
+                            "tolerance": tol,
+                            "deviation": float(max_dev),
+                            "aligned": max_dev <= tol,
+                        }
+                    )
+                else:
+                    raise ValueError("Unknown measurement type")
+
+                successful += 1
+                results.append(entry)
+            except Exception as exc:
+                failed += 1
+                entry["error"] = str(exc)
+                results.append(entry)
+
+        return ok_response(
+            result={"measurements": results, "summary": {"total": len(measurements), "successful": successful, "failed": failed}}
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def validate_operation(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate object against expectations (manifold, watertight, symmetry, alignment)."""
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("object_name"), "MESH")
+    if err:
+        return err
+
+    expectations = args.get("expectations") or {}
+    auto_fix = bool(args.get("auto_fix", False))
+    details: Dict[str, Any] = {}
+    failed: list[str] = []
+
+    import bmesh  # type: ignore  # pragma: no cover - Blender runtime
+    from math import degrees
+
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        bm.verts.ensure_lookup_table()
+
+        def _add_check(name: str, expected: Any, actual: Any, extra: Dict[str, Any] | None = None) -> None:
+            info = {"expected": expected, "actual": actual, "passed": expected == actual if isinstance(expected, bool) else bool(actual)}
+            if extra:
+                info.update(extra)
+            if not info["passed"]:
+                failed.append(name)
+            details[name] = info
+
+        if "manifold" in expectations:
+            manifold_ok = all(e.is_manifold for e in bm.edges)
+            _add_check("manifold", bool(expectations.get("manifold")), manifold_ok)
+
+        if "watertight" in expectations:
+            watertight_ok = all(not e.is_boundary for e in bm.edges)
+            _add_check("watertight", bool(expectations.get("watertight")), watertight_ok)
+
+        if expectations.get("no_ngons") is not None:
+            ngons = [f.index for f in bm.faces if len(f.verts) > 4]
+            _add_check("no_ngons", bool(expectations.get("no_ngons")), len(ngons) == 0, {"ngon_count": len(ngons)})
+
+        if expectations.get("no_tris") is not None:
+            tris = [f.index for f in bm.faces if len(f.verts) == 3]
+            _add_check("no_tris", bool(expectations.get("no_tris")), len(tris) == 0, {"triangle_count": len(tris)})
+
+        if expectations.get("symmetry"):
+            from mathutils import Vector  # type: ignore  # pragma: no cover - Blender runtime
+
+            sym = expectations["symmetry"]
+            axis = sym.get("axis", "X")
+            tol = float(sym.get("tolerance", 0.001))
+            axis_idx = {"X": 0, "Y": 1, "Z": 2}.get(axis, 0)
+            verts_world = [obj.matrix_world @ v.co for v in bm.verts]
+            unmatched = 0
+            for co in verts_world:
+                mirrored = co.copy()
+                mirrored[axis_idx] = -mirrored[axis_idx]
+                found = any((mirrored - other).length <= tol for other in verts_world)
+                if not found:
+                    unmatched += 1
+            _add_check("symmetry", True, unmatched == 0, {"axis": axis, "tolerance": tol, "unmatched": unmatched})
+
+        if expectations.get("alignment"):
+            align = expectations["alignment"]
+            grid_size = align.get("grid")
+            align_objects = align.get("objects") or []
+            tol = 0.001
+            grid_passed = True
+            if grid_size:
+                grid_passed = _grid_snapped(obj.location, float(grid_size), tol)
+            objects_passed = True
+            if align_objects:
+                for name in align_objects:
+                    target = bpy.data.objects.get(name)
+                    if target is None:
+                        objects_passed = False
+                        break
+                    if any(abs(obj.location[i] - target.location[i]) > tol for i in range(3)):
+                        objects_passed = False
+                        break
+            passed = grid_passed and objects_passed
+            details["alignment"] = {
+                "expected": True,
+                "actual": passed,
+                "grid_size": grid_size,
+                "aligned_to_objects": align_objects,
+                "passed": passed,
+            }
+            if not passed:
+                failed.append("alignment")
+
+        if expectations.get("min_face_area") is not None:
+            threshold = float(expectations["min_face_area"])
+            smallest = min((f.calc_area() for f in bm.faces), default=threshold)
+            passed = smallest >= threshold
+            _add_check("min_face_area", threshold, smallest, {"passed": passed})
+
+        if expectations.get("max_edge_angle") is not None:
+            limit = float(expectations["max_edge_angle"])
+            max_angle = 0.0
+            for e in bm.edges:
+                angle = e.calc_face_angle()
+                if angle is not None:
+                    max_angle = max(max_angle, degrees(angle))
+            passed = max_angle <= limit
+            details["max_edge_angle"] = {"expected": limit, "actual": max_angle, "passed": passed}
+            if not passed:
+                failed.append("max_edge_angle")
+
+        passed_all = len(failed) == 0
+
+        if auto_fix and not passed_all:
+            try:
+                bpy.context.view_layer.objects.active = obj
+                obj.select_set(True)
+                original_mode = obj.mode
+                bpy.ops.object.mode_set(mode="EDIT")
+                bpy.ops.mesh.remove_doubles(threshold=0.0001)
+                bpy.ops.mesh.normals_make_consistent(inside=False)
+                bpy.ops.object.mode_set(mode=original_mode)
+            except Exception:
+                pass
+
+        return ok_response(
+            result={"object_name": obj.name, "passed": passed_all, "failed_checks": failed, "details": details}
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+    finally:
+        bm.free()
