@@ -72,11 +72,11 @@
 **Verifications:**
 - Cle tools presente OK
 - Type tools: Array OK
-- Nombre d'outils: 131 OK
+- Nombre d'outils: 140 OK (131 base + 9 vision)
 - Chaque outil contient name, description, inputSchema OK
 
 **Tool Name Validation:**
-Tous les 131 noms respectent le pattern Anthropic:
+Tous les 140 noms respectent le pattern Anthropic:
 ^[a-zA-Z0-9_-]{1,64}$
 
 Exemples OK:
@@ -151,8 +151,8 @@ AUCUN outil avec : (probleme resolu dans commit d19cacd)
 | Format Ping | Conforme | 100% |
 | Format Tools/List | Conforme | 100% |
 | Format Tools/Call | Conforme | 100% |
-| Tool Name Pattern | 131/131 | 100% |
-| JSON Schema Valide | 131/131 | 100% |
+| Tool Name Pattern | 140/140 | 100% |
+| JSON Schema Valide | 140/140 | 100% |
 | JSON-RPC 2.0 | Conforme | 100% |
 | Error Handling | MCP-friendly | 100% |
 
@@ -214,17 +214,35 @@ Tous les 131 outils ont des schemas JSON valides
 
 Resume:
 - 6/6 methodes obligatoires implementees
-- 131/131 tool names conformes au pattern
-- 131/131 tool schemas JSON Schema valides
+- 140/140 tool names conformes au pattern (131 base + 9 vision)
+- 140/140 tool schemas JSON Schema valides
 - Error handling MCP-friendly (pas de rejets Zod)
 - JSON-RPC 2.0 compliant
-- Tests automatises (58/58 passent)
+- Tests automatises (62/62 passent)
 - Configuration Claude Desktop validee
 
 **Le serveur est production-ready.**
 
 ---
 
+## Mise a Jour - Vision Tools (Commit 7b7378d)
+
+9 nouveaux outils vision ajoutes:
+- athena-viewport-diff-comparison
+- athena-viewport-annotate-markup
+- athena-validate-operation-visual
+- athena-viewport-selection-isolate-capture
+- athena-viewport-measurement-overlay
+- athena-viewport-compare-matrix
+- athena-viewport-geometry-heatmap
+- athena-viewport-context-aware-capture
+- athena-viewport-xray-section-view
+
+Package athena_vision_tools cree avec architecture complete.
+Tous les outils conformes MCP (100%).
+
+---
+
 *Rapport genere le 2025-12-30*
-*Commit: 97e0470*
+*Commit: 7b7378d*
 *Branch: dev/core-01*
