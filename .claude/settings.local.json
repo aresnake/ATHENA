@@ -11,7 +11,9 @@
       "Bash(pip install:*)",
       "Bash(cat:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(Get-Content \"C:\\\\Users\\\\adrie\\\\AppData\\\\Roaming\\\\Claude\\\\logs\\\\mcp-server-athena.log\" -Tail 50)",
+      "Bash(curl:*)"
     ]
   }
 }

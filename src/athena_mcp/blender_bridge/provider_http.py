@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import inspect
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -31,8 +32,74 @@ _WAIT_TIMEOUT = 2.0
 _DEFAULT_HOST = "127.0.0.1"
 _DEFAULT_PORT = 8765
 
+
+def _build_dynamic_registry() -> Dict[str, Any]:
+    """Build tool registry dynamically from executor module.
+
+    Automatically discovers all public functions in executor.py and maps them
+    to tool names using conventional naming:
+    - Function name: add_cube → Tool name: blender-primitive-cube
+    - Function name: mesh_extrude → Tool name: blender-mesh-extrude
+
+    Also maintains manual aliases for backward compatibility.
+    """
+    registry: Dict[str, Any] = {}
+
+    # Auto-discover all executor functions
+    for name, func in inspect.getmembers(executor, inspect.isfunction):
+        # Skip private functions
+        if name.startswith('_'):
+            continue
+
+        # Convert function name to tool name
+        # e.g., add_cube → blender-primitive-cube
+        #       mesh_extrude → blender-mesh-extrude
+        tool_name = f"blender-{name.replace('_', '-')}"
+        registry[tool_name] = func
+
+    # Manual aliases for backward compatibility and special cases
+    _MANUAL_ALIASES = {
+        # Legacy names
+        "blender-list-objects": "list_objects",
+        "blender-scene-list-objects": "list_objects",
+        "blender-add-cube": "add_cube",
+        "blender-add-cylinder": "add_cylinder",
+        "blender-add-sphere": "add_sphere",
+        "blender-move-object": "move_object",
+        "blender-object-move": "move_object",  # Preferred name
+        "blender-set-mode": "set_mode",
+        "blender-mode-set": "set_mode",  # Preferred name
+        "blender-set-selection-mode": "set_selection_mode",
+        "blender-mode-selection-set": "set_selection_mode",  # Preferred name
+        "blender-diag-validate-tool": "validate_tool",
+
+        # Scene tools
+        "blender-scene-query-complete": "scene_query_complete",
+
+        # Athena vision tools (use athena- prefix)
+        "athena-blender-scene-query-complete": "scene_query_complete",
+        "athena-blender-spatial-analyze": "spatial_analyze",
+        "athena-blender-topology-validate-complete": "topology_validate_complete",
+        "athena-blender-measure-batch": "measure_batch",
+        "athena-blender-validate-operation": "validate_operation",
+    }
+
+    # Add manual aliases
+    for alias_name, func_name in _MANUAL_ALIASES.items():
+        func = getattr(executor, func_name, None)
+        if func is not None:
+            registry[alias_name] = func
+
+    return registry
+
+
 # Tool registry: maps both old and new tool names to executor functions
-_TOOL_REGISTRY: Dict[str, Any] = {
+# Now built dynamically from executor module
+_TOOL_REGISTRY: Dict[str, Any] = _build_dynamic_registry()
+
+# Keep the old manual registry as fallback/reference (commented out)
+"""
+_TOOL_REGISTRY_MANUAL: Dict[str, Any] = {
     # Scene tools
     "blender-list-objects": executor.list_objects,
     "blender-scene-list-objects": executor.list_objects,
@@ -168,6 +235,7 @@ _TOOL_REGISTRY: Dict[str, Any] = {
     "blender-mesh-extrude-manifold": executor.mesh_extrude_manifold,
     "blender-material-assign-fixed": executor.material_assign_fixed,
 }
+"""
 
 
 def _schedule_timer_once() -> None:
