@@ -54,10 +54,23 @@ def _build_dynamic_registry() -> Dict[str, Any]:
     to tool names using conventional naming:
     - Function name: add_cube → Tool name: blender-primitive-cube
     - Function name: mesh_extrude → Tool name: blender-mesh-extrude
+    - Function name: viewport_screenshot_complete → blender-viewport-screenshot-complete
+    - Function name: spatial_analyze → athena-blender-spatial-analyze (special athena prefix)
 
     Also maintains manual aliases for backward compatibility.
     """
     registry: Dict[str, Any] = {}
+
+    # Functions that use athena- prefix instead of blender-
+    # These are advanced/composite tools that work at a higher abstraction level
+    _ATHENA_TOOLS = {
+        'spatial_analyze', 'topology_validate_complete', 'measure_batch',
+        'validate_operation', 'validate_operation_visual',
+        'viewport_diff_comparison', 'viewport_annotate_markup',
+        'viewport_selection_isolate_capture', 'viewport_measurement_overlay',
+        'viewport_compare_matrix', 'viewport_geometry_heatmap',
+        'viewport_context_aware_capture', 'viewport_xray_section_view',
+    }
 
     # Auto-discover all executor functions
     for name, func in inspect.getmembers(executor, inspect.isfunction):
@@ -65,10 +78,20 @@ def _build_dynamic_registry() -> Dict[str, Any]:
         if name.startswith('_'):
             continue
 
-        # Convert function name to tool name
-        # e.g., add_cube → blender-primitive-cube
-        #       mesh_extrude → blender-mesh-extrude
-        tool_name = f"blender-{name.replace('_', '-')}"
+        # Convert function name to tool name with appropriate prefix
+        tool_name_base = name.replace('_', '-')
+
+        if name in _ATHENA_TOOLS:
+            # Athena tools: viewport_* → athena-viewport-*
+            #              spatial_* → athena-blender-spatial-*
+            if name.startswith('viewport_'):
+                tool_name = f"athena-{tool_name_base}"
+            else:
+                tool_name = f"athena-blender-{tool_name_base}"
+        else:
+            # Standard blender tools
+            tool_name = f"blender-{tool_name_base}"
+
         registry[tool_name] = func
 
     # Manual aliases for backward compatibility and special cases
@@ -106,24 +129,8 @@ def _build_dynamic_registry() -> Dict[str, Any]:
         "blender-diag-object-snapshot": "object_snapshot",
         "blender-dev-exec-python": "exec_python",
 
-        # Athena vision tools (use athena- prefix)
-        "athena-blender-scene-query-complete": "scene_query_complete",
-        "athena-blender-spatial-analyze": "spatial_analyze",
-        "athena-blender-topology-validate-complete": "topology_validate_complete",
-        "athena-blender-measure-batch": "measure_batch",
-        "athena-blender-validate-operation": "validate_operation",
-        "athena-blender-viewport-diagnostics": "viewport_diagnostics",
-
-        # Athena viewport tools
-        "athena-viewport-diff-comparison": "viewport_diff_comparison",
-        "athena-viewport-annotate-markup": "viewport_annotate_markup",
-        "athena-validate-operation-visual": "validate_operation_visual",
-        "athena-viewport-selection-isolate-capture": "viewport_selection_isolate_capture",
-        "athena-viewport-measurement-overlay": "viewport_measurement_overlay",
-        "athena-viewport-compare-matrix": "viewport_compare_matrix",
-        "athena-viewport-geometry-heatmap": "viewport_geometry_heatmap",
-        "athena-viewport-context-aware-capture": "viewport_context_aware_capture",
-        "athena-viewport-xray-section-view": "viewport_xray_section_view",
+        # NOTE: Athena tools are now auto-discovered via _ATHENA_TOOLS set
+        # No manual aliases needed - they're generated automatically from executor.py
     }
 
     # Add manual aliases
