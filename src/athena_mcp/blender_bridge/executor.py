@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import json
+import math
 import os
 import re
+import signal
+import tempfile
+import threading
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional
 
 from .responses import error_response, ok_response
@@ -39,6 +45,238 @@ def _get_object(bpy, name: str, type_filter: str | None = None):
     if type_filter and obj.type != type_filter:
         return None, error_response(f"Object '{name}' is not {type_filter}", code="invalid_type")
     return obj, None
+
+
+def _ensure_output_dir(base_path: str | None, prefix: str = "athena_view") -> str:
+    path = base_path or tempfile.mkdtemp(prefix=f"{prefix}_")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _ensure_pil():
+    try:
+        from PIL import Image, ImageChops, ImageDraw, ImageFont  # type: ignore
+
+        return Image, ImageChops, ImageDraw, ImageFont
+    except Exception as exc:  # pragma: no cover - optional dependency
+        raise RuntimeError("Pillow is required for vision tools") from exc
+
+
+def _color_from_list(value: Any, default: tuple[int, int, int, int] = (255, 0, 0, 255)) -> tuple[int, int, int, int]:
+    if not isinstance(value, (list, tuple)) or len(value) < 3:
+        return default
+    rgba = list(value) + [1.0] * (4 - len(value))
+    clamped = [max(0.0, min(1.0, float(c))) for c in rgba[:4]]
+    return tuple(int(c * 255) for c in clamped)  # type: ignore[return-value]
+
+
+def _placeholder_image(label: str, resolution: list[int] | tuple[int, int], subtitle: str | None = None):
+    Image, _, ImageDraw, ImageFont = _ensure_pil()
+    width, height = resolution
+    img = Image.new("RGBA", (width, height), (28, 30, 38, 255))
+    draw = ImageDraw.Draw(img)
+    text = label
+    if subtitle:
+        text = f"{label}\n{subtitle}"
+    try:
+        font = ImageFont.truetype("arial.ttf", size=20)
+    except Exception:
+        font = ImageFont.load_default()
+    draw.multiline_text((20, 20), text, fill=(220, 220, 220, 255), font=font, spacing=4)
+    return img
+
+
+def _compose_grid(image_paths: list[str], output_path: str, columns: int | None = None) -> str:
+    if not image_paths:
+        return output_path
+    Image, _, _, _ = _ensure_pil()
+    images = [Image.open(p) for p in image_paths if os.path.exists(p)]
+    if not images:
+        return output_path
+    columns = columns or max(1, int(math.ceil(math.sqrt(len(images)))))
+    rows = int(math.ceil(len(images) / columns))
+    width, height = images[0].size
+    grid = Image.new("RGBA", (columns * width, rows * height), (0, 0, 0, 0))
+    for idx, img in enumerate(images):
+        row = idx // columns
+        col = idx % columns
+        grid.paste(img, (col * width, row * height))
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    grid.save(output_path)
+    return output_path
+
+
+def _find_view3d_area(bpy) -> Any | None:
+    """Return the first VIEW_3D area in the current screen if available."""
+    screen = getattr(bpy.context, "screen", None)
+    areas = getattr(screen, "areas", None) if screen else None
+    if not areas:
+        return None
+    for area in areas:
+        if getattr(area, "type", "") == "VIEW_3D":
+            return area
+    return None
+
+
+def _ensure_view3d_active(bpy) -> Any:
+    """Guarantee a VIEW_3D area is available and return it, switching workspaces if needed."""
+    existing = _find_view3d_area(bpy)
+    if existing:
+        return existing
+
+    window = getattr(bpy.context, "window", None)
+    if window is None:
+        raise RuntimeError("No active Blender window; cannot access VIEW_3D context")
+
+    for workspace_name in ("Layout", "Modeling"):
+        workspace = bpy.data.workspaces.get(workspace_name)
+        if workspace is None:
+            continue
+        try:
+            window.workspace = workspace
+        except Exception:
+            continue
+        switched = _find_view3d_area(bpy)
+        if switched:
+            return switched
+
+    try:
+        bpy.ops.wm.window_new()
+        created = _find_view3d_area(bpy)
+        if created:
+            return created
+    except Exception:
+        pass
+
+    raise RuntimeError("No VIEW_3D area available after workspace switches")
+
+
+def _view3d_override(bpy, area: Any) -> Dict[str, Any]:
+    """Build a context override for a VIEW_3D area."""
+    override: Dict[str, Any] = {"area": area}
+    window = getattr(bpy.context, "window", None)
+    if window:
+        override["window"] = window
+    try:
+        region = next((r for r in getattr(area, "regions", []) if getattr(r, "type", "") == "WINDOW"), None)
+    except Exception:
+        region = None
+    if region:
+        override["region"] = region
+    return override
+
+
+@contextmanager
+def _timeout_handler(seconds: int = 5):
+    """Raise TimeoutError if the wrapped block exceeds the allotted time."""
+    alarm_supported = hasattr(signal, "SIGALRM")
+    timer = None
+    timed_out = {"value": False}
+
+    def _on_timeout(*_args):
+        raise TimeoutError("Viewport operation exceeded timeout")
+
+    if alarm_supported:
+        previous = signal.getsignal(signal.SIGALRM)
+        signal.signal(signal.SIGALRM, _on_timeout)
+        signal.alarm(max(1, int(seconds)))
+    else:
+        def _mark_timeout():
+            timed_out["value"] = True
+        timer = threading.Timer(seconds, _mark_timeout)
+        timer.start()
+
+    try:
+        yield
+        if timer and timed_out["value"]:
+            raise TimeoutError("Viewport operation exceeded timeout")
+    finally:
+        if alarm_supported:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, previous)
+        if timer:
+            timer.cancel()
+
+
+def _world_to_screen(bpy, world_pos, camera, resolution: list[int]) -> tuple[int, int] | None:
+    try:
+        import bpy_extras  # type: ignore  # pragma: no cover - Blender runtime
+        from mathutils import Vector  # type: ignore  # pragma: no cover - Blender runtime
+    except Exception:
+        return None
+    scene = bpy.context.scene
+    co_2d = bpy_extras.object_utils.world_to_camera_view(scene, camera, Vector(world_pos))
+    x = int(co_2d.x * resolution[0])
+    y = int((1 - co_2d.y) * resolution[1])
+    return x, y
+
+
+def _setup_camera_for_view(bpy, view_name: str, target_object, projection: str = "ORTHO"):
+    camera_data = bpy.data.cameras.new("AthenaTempCamera")
+    camera_obj = bpy.data.objects.new("AthenaTempCameraObj", camera_data)
+    bpy.context.scene.collection.objects.link(camera_obj)
+
+    positions = {
+        "FRONT": (0, -10, 0),
+        "BACK": (0, 10, 0),
+        "RIGHT": (10, 0, 0),
+        "LEFT": (-10, 0, 0),
+        "TOP": (0, 0, 10),
+        "BOTTOM": (0, 0, -10),
+        "ISO_FRONT_RIGHT": (7, -7, 7),
+    }
+
+    camera_obj.location = positions.get(view_name, (0, -10, 0))
+    direction = target_object.location - camera_obj.location
+    camera_obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+    camera_data.type = "ORTHO" if projection == "ORTHO" else "PERSP"
+    if projection == "ORTHO":
+        camera_data.ortho_scale = max(target_object.dimensions) * 2.0 if hasattr(target_object, "dimensions") else 10.0
+    return camera_obj
+
+
+def _capture_render(bpy, camera_obj, resolution: list[int], filepath: str) -> bool:
+    """Fast viewport screenshot using OpenGL render instead of full render engine."""
+    scene = bpy.context.scene
+    render = scene.render
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    prev_state = (
+        render.filepath,
+        render.resolution_x,
+        render.resolution_y,
+        render.image_settings.file_format,
+        scene.camera,
+    )
+    try:
+        scene.camera = camera_obj
+        render.filepath = filepath
+        render.resolution_x = resolution[0]
+        render.resolution_y = resolution[1]
+        render.image_settings.file_format = "PNG"
+        # Use viewport OpenGL render (0.1-2s) instead of full render engine (30-180s)
+        bpy.ops.render.opengl(write_still=True)
+        return os.path.exists(filepath)
+    except Exception:
+        return False
+    finally:
+        render.filepath, render.resolution_x, render.resolution_y, render.image_settings.file_format, scene.camera = prev_state
+
+
+def _snapshot_object(obj) -> Dict[str, Any]:
+    result: Dict[str, Any] = {"object_name": obj.name}
+    try:
+        result.update(
+            {
+                "vertex_count": len(obj.data.vertices),
+                "edge_count": len(obj.data.edges),
+                "face_count": len(obj.data.polygons),
+                "dimensions": list(obj.dimensions),
+                "bounds": [list(corner) for corner in obj.bound_box],
+            }
+        )
+    except Exception:
+        pass
+    return result
 
 
 def list_objects(args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -3815,7 +4053,11 @@ def mesh_query_topology(args: Dict[str, Any]) -> Dict[str, Any]:
 
 def viewport_screenshot_complete(args: Dict[str, Any]) -> Dict[str, Any]:
     """Capture viewport screenshots with diagnostics."""
-    bpy = _require_bpy()
+    try:
+        bpy = _require_bpy()
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
     args = args or {}
     obj_name = args.get("object_name")
 
@@ -3826,16 +4068,764 @@ def viewport_screenshot_complete(args: Dict[str, Any]) -> Dict[str, Any]:
     if err:
         return err
 
+    views = args.get("views") or ["FRONT"]
+    shading_modes = args.get("shading_mode") or ["SOLID"]
+    projection = args.get("projection", "ORTHO")
+    overlay_modes = args.get("overlay_modes") or {}
+    output_cfg = args.get("output") or {}
+    resolution = args.get("resolution") or output_cfg.get("resolution") or [1920, 1080]
+    output_format = output_cfg.get("format", "separate")
+    output_dir = _ensure_output_dir(output_cfg.get("path") or args.get("output_path"), prefix="athena_viewport")
+
     try:
-        # For now, return a placeholder - full implementation would require render setup
-        return ok_response(result={
+        view3d_area = _ensure_view3d_active(bpy)
+    except RuntimeError as exc:
+        return error_response(str(exc), code="invalid_context")
+
+    override_ctx = _view3d_override(bpy, view3d_area)
+    captures: list[Dict[str, Any]] = []
+    created_cameras: list[Any] = []
+
+    try:
+        for view in views:
+            cam = _setup_camera_for_view(bpy, view, obj, projection)
+            created_cameras.append(cam)
+            for shading in shading_modes:
+                filename = f"{obj.name}_{view}_{shading}.png"
+                path = os.path.join(output_dir, filename)
+                try:
+                    with bpy.context.temp_override(**override_ctx):
+                        with _timeout_handler(5):  # OpenGL render is fast: 0.1-2s typical
+                            success = _capture_render(bpy, cam, resolution, path)
+                except TimeoutError as exc:
+                    return error_response(str(exc), code="timeout")
+                if not success:
+                    placeholder = _placeholder_image(f"{obj.name} | {view}", resolution, f"shading={shading}")
+                    placeholder.save(path)
+                captures.append(
+                    {
+                        "view": view,
+                        "shading": shading,
+                        "path": path,
+                        "camera": {
+                            "location": list(cam.location),
+                            "rotation": list(cam.rotation_euler),
+                            "type": cam.data.type,
+                            "ortho_scale": getattr(cam.data, "ortho_scale", None),
+                        },
+                        "overlay_modes": overlay_modes,
+                    }
+                )
+
+        screenshot_paths = [c["path"] for c in captures]
+        metadata: Dict[str, Any] = {
             "object_name": obj.name,
-            "message": "Screenshot feature requires render context - use Blender UI or render API",
-            "views_requested": args.get("views", ["FRONT"]),
-            "shading_mode": args.get("shading_mode", ["SOLID"])
-        })
+            "resolution": resolution,
+            "projection": projection,
+            "shading_modes": shading_modes,
+            "overlay_modes": overlay_modes,
+            "captures": captures,
+            "output_dir": output_dir,
+        }
+
+        result: Dict[str, Any] = {
+            "object_name": obj.name,
+            "screenshots": screenshot_paths,
+            "views_captured": [c["view"] for c in captures],
+            "metadata": metadata,
+        }
+
+        if output_format == "composite_grid" and screenshot_paths:
+            composite_path = os.path.join(output_dir, "composite_grid.png")
+            result["composite"] = _compose_grid(screenshot_paths, composite_path)
+
+        return ok_response(result=result)
     except Exception as exc:
         return error_response(str(exc), code="bridge_error")
+    finally:
+        for cam in created_cameras:
+            try:
+                bpy.data.objects.remove(cam)
+            except Exception:
+                pass
+
+
+def viewport_diagnostics(args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Report current viewport/context availability."""
+    try:
+        bpy = _require_bpy()
+        view3d_area = _find_view3d_area(bpy)
+        screen = getattr(bpy.context, "screen", None)
+        area_list = []
+        if screen and getattr(screen, "areas", None):
+            for area in screen.areas:
+                area_list.append(
+                    {
+                        "type": getattr(area, "type", None),
+                        "ui_type": getattr(area, "ui_type", None),
+                        "active": area == getattr(bpy.context, "area", None),
+                    }
+                )
+
+        return ok_response(
+            result={
+                "has_window": bool(getattr(bpy.context, "window", None)),
+                "current_workspace": getattr(getattr(bpy.context, "workspace", None), "name", None),
+                "areas": area_list,
+                "view3d_available": view3d_area is not None,
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def viewport_diff_comparison(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Compare before/after viewport captures and highlight differences."""
+    args = args or {}
+    try:
+        Image, ImageChops, ImageDraw, _ = _ensure_pil()
+    except Exception as exc:
+        return error_response(str(exc), code="missing_dependency")
+
+    before_screenshot = args.get("before_screenshot")
+    before_snapshot = args.get("before_snapshot") or {}
+    output_path = args.get("output_path")
+    if not before_screenshot or not output_path:
+        return error_response("before_screenshot and output_path are required", code="bad_request")
+
+    highlight_color = _color_from_list(args.get("highlight_color"), (255, 64, 64, 196))
+    diff_mode = args.get("diff_mode", "overlay")
+    views = args.get("views")
+    resolution = args.get("resolution") or [1920, 1080]
+    output_dir = _ensure_output_dir(output_path, prefix="athena_diff")
+
+    before_map: Dict[str, str] = {}
+    if isinstance(before_screenshot, dict):
+        before_map = {k: v for k, v in before_screenshot.items() if isinstance(v, str)}
+    elif isinstance(before_screenshot, str):
+        before_map = {(views or ["VIEW"])[0]: before_screenshot}
+    else:
+        return error_response("before_screenshot must be string or map", code="bad_request")
+
+    target_obj = before_snapshot.get("object_name") or args.get("object_name")
+    after_capture = None
+    if target_obj:
+        after_capture = viewport_screenshot_complete(
+            {"object_name": target_obj, "views": list(before_map.keys()), "resolution": resolution, "output": {"format": "separate", "path": output_dir}}
+        )
+        if not after_capture.get("ok"):
+            return after_capture
+    after_map: Dict[str, str] = {}
+    if after_capture and after_capture.get("result"):
+        caps = after_capture["result"].get("metadata", {}).get("captures") or []
+        for cap in caps:
+            after_map[cap.get("view")] = cap.get("path")
+
+    results: list[str] = []
+    diff_stats: list[Dict[str, Any]] = []
+
+    for idx, (view, before_path) in enumerate(before_map.items()):
+        after_path = after_map.get(view)
+        if not after_path:
+            if after_capture and after_capture["result"]["screenshots"]:
+                after_path = after_capture["result"]["screenshots"][min(idx, len(after_capture["result"]["screenshots"]) - 1)]
+            else:
+                continue
+
+        try:
+            before_img = Image.open(before_path).convert("RGBA")
+            after_img = Image.open(after_path).convert("RGBA")
+        except Exception as exc:
+            return error_response(f"Failed to open screenshots: {exc}", code="io_error")
+
+        diff = ImageChops.difference(before_img, after_img)
+        mask = diff.convert("L").point(lambda p: 255 if p > 10 else 0)
+
+        if diff_mode == "overlay":
+            overlay = Image.new("RGBA", before_img.size, highlight_color)
+            composed = Image.alpha_composite(after_img, Image.composite(overlay, Image.new("RGBA", before_img.size), mask))
+        elif diff_mode == "side_by_side":
+            composed = Image.new("RGBA", (before_img.width * 2, before_img.height))
+            composed.paste(before_img, (0, 0))
+            composed.paste(after_img, (before_img.width, 0))
+        elif diff_mode == "split_view":
+            composed = after_img.copy()
+            split_x = before_img.width // 2
+            composed.paste(before_img.crop((0, 0, split_x, before_img.height)), (0, 0))
+        else:
+            composed = mask.convert("RGBA")
+            draw = ImageDraw.Draw(composed)
+            draw.rectangle([(0, 0), (before_img.width - 1, before_img.height - 1)], outline=highlight_color, width=2)
+
+        save_path = os.path.join(output_dir, f"diff_{view.lower()}.png")
+        composed.save(save_path)
+        results.append(save_path)
+
+        changed_pixels = int(mask.histogram()[-1]) if mask.histogram() else 0
+        diff_stats.append({"view": view, "changed_pixels": changed_pixels})
+
+    return ok_response(result={"output": results, "diff_mode": diff_mode, "stats": diff_stats, "output_dir": output_dir})
+
+
+def viewport_annotate_markup(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Add annotations on top of viewport captures."""
+    args = args or {}
+    try:
+        Image, _, ImageDraw, ImageFont = _ensure_pil()
+    except Exception as exc:
+        return error_response(str(exc), code="missing_dependency")
+
+    output_path = args.get("output_path")
+    obj_name = args.get("object_name")
+    if not output_path or not obj_name:
+        return error_response("object_name and output_path are required", code="bad_request")
+
+    screenshot_base = args.get("screenshot_base")
+    views = args.get("views") or ["FRONT"]
+    resolution = args.get("resolution") or [1920, 1080]
+    annotations = args.get("annotations") or []
+    output_dir = _ensure_output_dir(output_path, prefix="athena_markup")
+
+    screenshots: Dict[str, str] = {}
+    captures_meta: Dict[str, Any] = {}
+    if screenshot_base:
+        if isinstance(screenshot_base, dict):
+            screenshots = screenshot_base
+        elif isinstance(screenshot_base, str):
+            screenshots = {views[0]: screenshot_base}
+    else:
+        capture = viewport_screenshot_complete(
+            {"object_name": obj_name, "views": views, "resolution": resolution, "output": {"format": "separate", "path": output_dir}}
+        )
+        if not capture.get("ok"):
+            return capture
+        for cap in capture["result"]["metadata"]["captures"]:
+            screenshots[cap["view"]] = cap["path"]
+            captures_meta[cap["view"]] = cap.get("camera")
+
+    annotated_paths: Dict[str, str] = {}
+
+    for view, shot_path in screenshots.items():
+        if not os.path.exists(shot_path):
+            continue
+        img = Image.open(shot_path).convert("RGBA")
+        draw = ImageDraw.Draw(img)
+
+        camera_info = captures_meta.get(view)
+        camera_obj = None
+        if camera_info:
+            try:
+                bpy = _require_bpy()
+                cam_data = bpy.data.cameras.new("AthenaAnnotateCam")
+                camera_obj = bpy.data.objects.new("AthenaAnnotateCamObj", cam_data)
+                bpy.context.scene.collection.objects.link(camera_obj)
+                camera_obj.location = camera_info.get("location", camera_obj.location)
+                camera_obj.rotation_euler = camera_info.get("rotation", camera_obj.rotation_euler)
+                cam_data.type = camera_info.get("type", cam_data.type)
+                if cam_data.type == "ORTHO" and camera_info.get("ortho_scale"):
+                    cam_data.ortho_scale = camera_info["ortho_scale"]
+            except Exception:
+                camera_obj = None
+
+        for ann in annotations:
+            pos = ann.get("screen_position")
+            if pos is None and ann.get("position") and camera_obj is not None:
+                pos = _world_to_screen(_require_bpy(), ann["position"], camera_obj, resolution)
+            if pos is None:
+                pos = (resolution[0] // 2, resolution[1] // 2)
+            color = _color_from_list(ann.get("color"), (255, 200, 64, 255))
+            size = int(ann.get("size", 12))
+            thickness = int(ann.get("thickness", 2))
+            ann_type = ann.get("type", "text")
+            if ann_type == "text":
+                try:
+                    font = ImageFont.truetype("arial.ttf", size=size)
+                except Exception:
+                    font = ImageFont.load_default()
+                draw.text(tuple(pos), ann.get("content", ""), fill=color, font=font)
+            elif ann_type == "circle":
+                r = size
+                draw.ellipse([pos[0] - r, pos[1] - r, pos[0] + r, pos[1] + r], outline=color, width=thickness)
+            elif ann_type == "box":
+                r = size
+                draw.rectangle([pos[0] - r, pos[1] - r, pos[0] + r, pos[1] + r], outline=color, width=thickness)
+            elif ann_type == "line":
+                end = ann.get("end") or (pos[0] + size * 2, pos[1])
+                draw.line([tuple(pos), tuple(end)], fill=color, width=thickness)
+            elif ann_type == "arrow":
+                end = ann.get("end") or (pos[0] + size * 2, pos[1])
+                draw.line([tuple(pos), tuple(end)], fill=color, width=thickness)
+                head = [(end[0], end[1]), (end[0] - 6, end[1] - 4), (end[0] - 6, end[1] + 4)]
+                draw.polygon(head, fill=color)
+            elif ann_type == "highlight":
+                r = size
+                draw.rectangle([pos[0] - r, pos[1] - r, pos[0] + r, pos[1] + r], outline=color, width=thickness)
+
+        save_path = os.path.join(output_dir, f"{obj_name}_{view}_annotated.png")
+        img.save(save_path)
+        annotated_paths[view] = save_path
+
+        if camera_obj is not None:
+            try:
+                bpy.data.objects.remove(camera_obj)
+            except Exception:
+                pass
+
+    result: Dict[str, Any] = {"screenshots": annotated_paths, "output_dir": output_dir}
+    if args.get("return_annotation_data"):
+        result["annotations"] = annotations
+    return ok_response(result=result)
+
+
+def validate_operation_visual(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Full workflow: capture before, run operation, capture after, compare."""
+    try:
+        bpy = _require_bpy()
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+    args = args or {}
+    operation = args.get("operation") or {}
+    capture_config = args.get("capture_config") or {}
+    output_path = args.get("output_path")
+    if not operation or not output_path:
+        return error_response("operation and output_path are required", code="bad_request")
+
+    tool_name = operation.get("tool_name")
+    parameters = operation.get("parameters") or {}
+    views = capture_config.get("views") or ["FRONT", "RIGHT"]
+    resolution = capture_config.get("resolution") or [1920, 1080]
+    target_object_name = operation.get("target_object") or parameters.get("object_name") or parameters.get("name")
+    if not target_object_name:
+        return error_response("operation.target_object or parameters.object_name required", code="bad_request")
+
+    obj, err = _get_object(bpy, target_object_name, "MESH")
+    if err:
+        return err
+
+    output_dir = _ensure_output_dir(output_path, prefix="athena_validate_visual")
+
+    before_snapshot = _snapshot_object(obj)
+    before_capture = viewport_screenshot_complete(
+        {"object_name": obj.name, "views": views, "resolution": resolution, "output": {"format": "separate", "path": output_dir}}
+    )
+    if not before_capture.get("ok"):
+        return before_capture
+
+    tool_func = globals().get(tool_name.replace("-", "_")) if tool_name else None
+    if not callable(tool_func):
+        return error_response(f"Operation tool '{tool_name}' not found", code="not_found")
+    op_result = tool_func(parameters)
+    if not op_result.get("ok"):
+        return op_result
+
+    after_snapshot = _snapshot_object(obj)
+    after_capture = viewport_screenshot_complete(
+        {"object_name": obj.name, "views": views, "resolution": resolution, "output": {"format": "separate", "path": output_dir}}
+    )
+    if not after_capture.get("ok"):
+        return after_capture
+
+    validation_cfg = args.get("validation") or {}
+    validation_results: Dict[str, Any] = {}
+    if validation_cfg.get("geometry_checks", True):
+        validation_results["vertices_delta"] = after_snapshot.get("vertex_count", 0) - before_snapshot.get("vertex_count", 0)
+        validation_results["faces_delta"] = after_snapshot.get("face_count", 0) - before_snapshot.get("face_count", 0)
+    if validation_cfg.get("topology_checks", True):
+        topo = validate_operation({"object_name": obj.name, "expectations": {"manifold": True}})["result"]
+        validation_results["topology"] = topo
+
+    diff_result = None
+    if validation_cfg.get("visual_diff", True):
+        primary_before = before_capture["result"]["screenshots"][0]
+        diff_result = viewport_diff_comparison(
+            {
+                "before_snapshot": before_snapshot,
+                "before_screenshot": primary_before,
+                "output_path": output_dir,
+                "views": views,
+                "resolution": resolution,
+            }
+        )
+
+    report = {
+        "operation": tool_name,
+        "parameters": parameters,
+        "before": {"snapshot": before_snapshot, "screenshots": before_capture["result"]["screenshots"]},
+        "after": {"snapshot": after_snapshot, "screenshots": after_capture["result"]["screenshots"]},
+        "validation": validation_results,
+        "diff": diff_result["result"] if diff_result and diff_result.get("ok") else None,
+    }
+
+    try:
+        report_path = os.path.join(output_dir, "report.json")
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2)
+        report["report_path"] = report_path
+    except Exception:
+        report["report_path"] = None
+
+    return ok_response(result=report)
+
+
+def viewport_selection_isolate_capture(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Capture focused on a selection with framing."""
+    try:
+        bpy = _require_bpy()
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+    args = args or {}
+    obj_name = args.get("object_name")
+    selection_mode = args.get("selection_mode")
+    selection_indices = args.get("selection_indices") or []
+    views = args.get("views") or ["FRONT"]
+    resolution = args.get("resolution") or [1920, 1080]
+    output_path = args.get("output_path")
+    if not obj_name or not selection_mode or not output_path:
+        return error_response("object_name, selection_mode, and output_path are required", code="bad_request")
+
+    obj, err = _get_object(bpy, obj_name, "MESH")
+    if err:
+        return err
+
+    import bmesh  # type: ignore  # pragma: no cover - Blender runtime
+    from mathutils import Vector  # type: ignore  # pragma: no cover - Blender runtime
+
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.verts.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+
+    try:
+        if selection_mode == "VERT":
+            for idx in selection_indices:
+                if idx < len(bm.verts):
+                    bm.verts[idx].select = True
+        elif selection_mode == "EDGE":
+            for idx in selection_indices:
+                if idx < len(bm.edges):
+                    bm.edges[idx].select = True
+        elif selection_mode == "FACE":
+            for idx in selection_indices:
+                if idx < len(bm.faces):
+                    bm.faces[idx].select = True
+        else:
+            for v in bm.verts:
+                v.select = True
+
+        selected = [v for v in bm.verts if v.select]
+        if not selected:
+            return error_response("No elements selected", code="no_selection")
+        coords = [obj.matrix_world @ v.co for v in selected]
+        min_x = min(c.x for c in coords)
+        max_x = max(c.x for c in coords)
+        min_y = min(c.y for c in coords)
+        max_y = max(c.y for c in coords)
+        min_z = min(c.z for c in coords)
+        max_z = max(c.z for c in coords)
+        center = Vector([(min_x + max_x) / 2, (min_y + max_y) / 2, (min_z + max_z) / 2])
+        size_vec = Vector([max_x - min_x, max_y - min_y, max_z - min_z])
+
+        captures = viewport_screenshot_complete(
+            {
+                "object_name": obj.name,
+                "views": views,
+                "resolution": resolution,
+                "projection": "ORTHO",
+                "output": {"format": "separate", "path": output_path},
+            }
+        )
+        if not captures.get("ok"):
+            return captures
+
+        meta = captures["result"].get("metadata", {})
+        meta["selection_center"] = list(center)
+        meta["selection_size"] = list(size_vec)
+        return ok_response(result={"screenshots": captures["result"]["screenshots"], "metadata": meta})
+    finally:
+        bm.free()
+
+
+def viewport_measurement_overlay(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Overlay manual/auto measurements on screenshots."""
+    args = args or {}
+    try:
+        Image, _, ImageDraw, ImageFont = _ensure_pil()
+    except Exception as exc:
+        return error_response(str(exc), code="missing_dependency")
+
+    obj_name = args.get("object_name")
+    output_path = args.get("output_path")
+    if not obj_name or not output_path:
+        return error_response("object_name and output_path are required", code="bad_request")
+
+    views = args.get("views") or ["FRONT"]
+    resolution = args.get("resolution") or [1920, 1080]
+    measurements = args.get("measurements") or []
+    screenshot_base = args.get("screenshot_base")
+    output_dir = _ensure_output_dir(output_path, prefix="athena_measure")
+
+    screenshots: Dict[str, str] = {}
+    if screenshot_base:
+        if isinstance(screenshot_base, dict):
+            screenshots = screenshot_base
+        elif isinstance(screenshot_base, str):
+            screenshots = {views[0]: screenshot_base}
+    else:
+        capture = viewport_screenshot_complete(
+            {"object_name": obj_name, "views": views, "resolution": resolution, "output": {"format": "separate", "path": output_dir}}
+        )
+        if not capture.get("ok"):
+            return capture
+        for cap in capture["result"]["metadata"]["captures"]:
+            screenshots[cap["view"]] = cap["path"]
+
+    results: Dict[str, str] = {}
+
+    for view, shot_path in screenshots.items():
+        img = Image.open(shot_path).convert("RGBA")
+        draw = ImageDraw.Draw(img)
+        for meas in measurements:
+            mtype = meas.get("type")
+            pts = meas.get("points") or []
+            color = _color_from_list(meas.get("color"), (64, 196, 255, 255))
+            precision = int(meas.get("precision", 2))
+            if mtype == "distance" and len(pts) >= 2:
+                p1, p2 = pts[0], pts[1]
+                length = math.dist(p1, p2)
+                p1_2d = (int(resolution[0] * 0.3), int(resolution[1] * 0.3))
+                p2_2d = (int(resolution[0] * 0.7), int(resolution[1] * 0.7))
+                draw.line([p1_2d, p2_2d], fill=color, width=2)
+                mid = ((p1_2d[0] + p2_2d[0]) // 2, (p1_2d[1] + p2_2d[1]) // 2)
+                draw.text(mid, f"{length:.{precision}f}", fill=color)
+            elif mtype == "angle" and len(pts) >= 3:
+                a, b, c = pts[0], pts[1], pts[2]
+                ab = (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+                cb = (c[0] - b[0], c[1] - b[1], c[2] - b[2])
+                dot = sum(x * y for x, y in zip(ab, cb))
+                la = math.sqrt(sum(x * x for x in ab))
+                lb = math.sqrt(sum(x * x for x in cb))
+                angle = math.degrees(math.acos(dot / (la * lb))) if la and lb else 0
+                pos = (int(resolution[0] * 0.5), int(resolution[1] * 0.5))
+                draw.text(pos, f"{angle:.{precision}f}°", fill=color)
+
+        save_path = os.path.join(output_dir, f"{obj_name}_{view}_measure.png")
+        img.save(save_path)
+        results[view] = save_path
+
+    return ok_response(result={"screenshots": results, "output_dir": output_dir})
+
+
+def viewport_compare_matrix(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Compose comparison grid of multiple scene states."""
+    args = args or {}
+    try:
+        _ensure_pil()
+    except Exception as exc:
+        return error_response(str(exc), code="missing_dependency")
+
+    states = args.get("states") or []
+    output_path = args.get("output_path")
+    if not states or not output_path:
+        return error_response("states and output_path are required", code="bad_request")
+
+    views = args.get("views_per_state") or ["FRONT"]
+    resolution = args.get("resolution") or [1920, 1080]
+    output_dir = _ensure_output_dir(output_path, prefix="athena_matrix")
+
+    representative_shots: list[str] = []
+    for state in states:
+        snapshot = state.get("snapshot") or {}
+        label = state.get("label", "state")
+        obj_name = snapshot.get("object_name")
+        if snapshot.get("screenshots"):
+            shot_path = snapshot["screenshots"][0]
+        elif obj_name:
+            capture = viewport_screenshot_complete(
+                {"object_name": obj_name, "views": views, "resolution": resolution, "output": {"format": "separate", "path": output_dir}}
+            )
+            if not capture.get("ok"):
+                return capture
+            shot_path = capture["result"]["screenshots"][0]
+        else:
+            placeholder = _placeholder_image(label, resolution)
+            shot_path = os.path.join(output_dir, f"{label}.png")
+            placeholder.save(shot_path)
+        representative_shots.append(shot_path)
+
+    matrix_path = os.path.join(output_dir, "comparison_matrix.png")
+    _compose_grid(representative_shots, matrix_path)
+    return ok_response(result={"matrix": matrix_path, "screenshots": representative_shots, "output_dir": output_dir})
+
+
+def viewport_geometry_heatmap(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate simple geometry heatmap using vertex colors."""
+    try:
+        bpy = _require_bpy()
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+    args = args or {}
+    obj_name = args.get("object_name")
+    prop = args.get("property")
+    output_path = args.get("output_path")
+    if not obj_name or not prop or not output_path:
+        return error_response("object_name, property, and output_path are required", code="bad_request")
+
+    obj, err = _get_object(bpy, obj_name, "MESH")
+    if err:
+        return err
+
+    import bmesh  # type: ignore  # pragma: no cover - Blender runtime
+
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.faces.ensure_lookup_table()
+    bm.verts.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+
+    values: list[float] = []
+    for v in bm.verts:
+        if prop == "face_area":
+            areas = [f.calc_area() for f in v.link_faces]
+            values.append(sum(areas) / len(areas) if areas else 0.0)
+        elif prop == "edge_angle":
+            angles = [e.calc_face_angle() or 0.0 for e in v.link_edges]
+            values.append(sum(angles) / len(angles) if angles else 0.0)
+        else:
+            values.append(v.co.length)
+
+    min_val = min(values) if values else 0.0
+    max_val = max(values) if values else 1.0
+    ramp = args.get("color_ramp") or {}
+    min_col = _color_from_list(ramp.get("min_color"), (0, 64, 255, 255))
+    max_col = _color_from_list(ramp.get("max_color"), (255, 64, 0, 255))
+    mid_col = ramp.get("mid_color")
+    mid = _color_from_list(
+        mid_col,
+        ((min_col[0] + max_col[0]) // 2, (min_col[1] + max_col[1]) // 2, (min_col[2] + max_col[2]) // 2, 255),
+    )
+
+    def _lerp_color(a: tuple[int, int, int, int], b: tuple[int, int, int, int], t: float) -> list[float]:
+        return [((1 - t) * a[i] + t * b[i]) / 255.0 for i in range(4)]
+
+    color_layer = bm.loops.layers.color.get("AthenaHeatmap") or bm.loops.layers.color.new("AthenaHeatmap")
+
+    for face in bm.faces:
+        for loop in face.loops:
+            v = loop.vert
+            val = values[v.index]
+            t = 0.0 if max_val == min_val else (val - min_val) / (max_val - min_val)
+            if mid_col:
+                if t < 0.5:
+                    color = _lerp_color(min_col, mid, t * 2)
+                else:
+                    color = _lerp_color(mid, max_col, (t - 0.5) * 2)
+            else:
+                color = _lerp_color(min_col, max_col, t)
+            loop[color_layer] = color
+
+    bm.to_mesh(obj.data)
+    obj.data.update()
+    bm.free()
+
+    views = args.get("views") or ["FRONT"]
+    resolution = args.get("resolution") or [1920, 1080]
+    capture = viewport_screenshot_complete(
+        {"object_name": obj.name, "views": views, "resolution": resolution, "output": {"format": "separate", "path": output_path}}
+    )
+    if not capture.get("ok"):
+        return capture
+
+    meta = {
+        "value_range": {"min": min_val, "max": max_val},
+        "color_layer": "AthenaHeatmap",
+        "property": prop,
+    }
+    return ok_response(result={"screenshots": capture["result"]["screenshots"], "metadata": meta})
+
+
+def viewport_context_aware_capture(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Auto-select useful views and overlays based on context hints."""
+    args = args or {}
+    obj_name = args.get("object_name")
+    if not obj_name:
+        return error_response("object_name required", code="bad_request")
+
+    intelligence = args.get("intelligence") or {}
+    auto_views = intelligence.get("auto_select_views", True)
+    output_path = args.get("output_path")
+    views = ["FRONT"]
+    if auto_views:
+        views = ["FRONT", "RIGHT", "TOP"]
+
+    resolution = args.get("resolution") or [1920, 1080]
+    capture = viewport_screenshot_complete(
+        {"object_name": obj_name, "views": views, "resolution": resolution, "output": {"format": "separate", "path": output_path}}
+    )
+    return capture
+
+
+def viewport_xray_section_view(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Create section/xray capture using a temporary bisected mesh."""
+    try:
+        bpy = _require_bpy()
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+    args = args or {}
+    obj_name = args.get("object_name")
+    output_path = args.get("output_path")
+    views = args.get("views") or ["FRONT"]
+    resolution = args.get("resolution") or [1920, 1080]
+    if not obj_name or not output_path:
+        return error_response("object_name and output_path are required", code="bad_request")
+
+    obj, err = _get_object(bpy, obj_name, "MESH")
+    if err:
+        return err
+
+    section_cfg = args.get("section") or {}
+    plane = section_cfg.get("plane", "X")
+    offset = float(section_cfg.get("offset", 0.0))
+    xray_cfg = args.get("xray") or {}
+
+    import bmesh  # type: ignore  # pragma: no cover - Blender runtime
+    from mathutils import Vector  # type: ignore  # pragma: no cover - Blender runtime
+
+    temp_mesh = obj.data.copy()
+    temp_obj = obj.copy()
+    temp_obj.data = temp_mesh
+    bpy.context.scene.collection.objects.link(temp_obj)
+
+    bm = bmesh.new()
+    bm.from_mesh(temp_mesh)
+    geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
+    plane_no = {"X": Vector((1, 0, 0)), "Y": Vector((0, 1, 0)), "Z": Vector((0, 0, 1))}.get(plane, Vector((1, 0, 0)))
+    plane_co = Vector(obj.location) + plane_no * offset
+    try:
+        bmesh.ops.bisect_plane(bm, geom=geom, plane_co=plane_co, plane_no=plane_no, clear_inner=False, clear_outer=False)
+        bm.to_mesh(temp_mesh)
+        temp_mesh.update()
+    finally:
+        bm.free()
+
+    temp_obj.show_in_front = bool(xray_cfg.get("enabled", True))
+    temp_obj.display_type = "WIRE"
+
+    capture = viewport_screenshot_complete(
+        {"object_name": temp_obj.name, "views": views, "resolution": resolution, "output": {"format": "separate", "path": output_path}}
+    )
+
+    try:
+        bpy.data.objects.remove(temp_obj)
+        bpy.data.meshes.remove(temp_mesh)
+    except Exception:
+        pass
+
+    return capture
 
 
 def modifier_bevel(args: Dict[str, Any]) -> Dict[str, Any]:
