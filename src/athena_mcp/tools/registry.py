@@ -5,7 +5,7 @@ from typing import List
 from ..mcp_core.bridge_client import bridge_request
 from .types import ToolDefinition
 from ..mcp_core.types import BridgeFunc, JSONDict, error_response, ok_response
-from . import devtools, mesh_edit, primitives, object_ops, specs_v2, diagnostics
+from . import devtools, mesh_edit, primitives, object_ops, specs_v2, diagnostics, vision_specs
 
 _bridge_request: BridgeFunc = bridge_request
 
@@ -1075,6 +1075,42 @@ def _tool_athena_measure_batch(args: JSONDict) -> JSONDict:
 
 def _tool_athena_validate_operation(args: JSONDict) -> JSONDict:
     return _call_bridge("athena-blender-validate-operation", _clean_args(args))
+
+
+def _tool_athena_viewport_diff_comparison(args: JSONDict) -> JSONDict:
+    return _call_bridge("athena-viewport-diff-comparison", _clean_args(args))
+
+
+def _tool_athena_viewport_annotate_markup(args: JSONDict) -> JSONDict:
+    return _call_bridge("athena-viewport-annotate-markup", _clean_args(args))
+
+
+def _tool_athena_validate_operation_visual(args: JSONDict) -> JSONDict:
+    return _call_bridge("athena-validate-operation-visual", _clean_args(args))
+
+
+def _tool_athena_viewport_selection_isolate_capture(args: JSONDict) -> JSONDict:
+    return _call_bridge("athena-viewport-selection-isolate-capture", _clean_args(args))
+
+
+def _tool_athena_viewport_measurement_overlay(args: JSONDict) -> JSONDict:
+    return _call_bridge("athena-viewport-measurement-overlay", _clean_args(args))
+
+
+def _tool_athena_viewport_compare_matrix(args: JSONDict) -> JSONDict:
+    return _call_bridge("athena-viewport-compare-matrix", _clean_args(args))
+
+
+def _tool_athena_viewport_geometry_heatmap(args: JSONDict) -> JSONDict:
+    return _call_bridge("athena-viewport-geometry-heatmap", _clean_args(args))
+
+
+def _tool_athena_viewport_context_aware_capture(args: JSONDict) -> JSONDict:
+    return _call_bridge("athena-viewport-context-aware-capture", _clean_args(args))
+
+
+def _tool_athena_viewport_xray_section_view(args: JSONDict) -> JSONDict:
+    return _call_bridge("athena-viewport-xray-section-view", _clean_args(args))
 
 
 TOOLS: List[ToolDefinition] = [
@@ -2257,6 +2293,87 @@ TOOLS: List[ToolDefinition] = [
         category="validation",
         tags=["validation", "quality", "diagnostic"],
         safety_level="safe-first",
+    ),
+    ToolDefinition(
+        name="athena-viewport-diff-comparison",
+        description="Compare before/after viewport captures with geometry diff overlays and measurements.",
+        input_schema=vision_specs.VIEWPORT_DIFF_COMPARISON_SCHEMA,
+        impl=_tool_athena_viewport_diff_comparison,
+        category="vision",
+        tags=["viewport", "diff", "diagnostic", "compare"],
+        safety_level="view3d-required",
+    ),
+    ToolDefinition(
+        name="athena-viewport-annotate-markup",
+        description="Annotate viewport captures with manual/auto overlays and export annotation data.",
+        input_schema=vision_specs.VIEWPORT_ANNOTATE_MARKUP_SCHEMA,
+        impl=_tool_athena_viewport_annotate_markup,
+        category="vision",
+        tags=["viewport", "annotation", "overlay"],
+        safety_level="view3d-required",
+    ),
+    ToolDefinition(
+        name="athena-validate-operation-visual",
+        description="Full visual validation workflow with before/after capture, diff, topology checks, and report.",
+        input_schema=vision_specs.VALIDATE_OPERATION_VISUAL_SCHEMA,
+        impl=_tool_athena_validate_operation_visual,
+        category="validation",
+        tags=["validation", "workflow", "vision"],
+        safety_level="view3d-required",
+    ),
+    ToolDefinition(
+        name="athena-viewport-selection-isolate-capture",
+        description="Capture focused screenshots on a selection with framing and context display options.",
+        input_schema=vision_specs.VIEWPORT_SELECTION_ISOLATE_CAPTURE_SCHEMA,
+        impl=_tool_athena_viewport_selection_isolate_capture,
+        category="vision",
+        tags=["viewport", "selection", "capture"],
+        safety_level="view3d-required",
+    ),
+    ToolDefinition(
+        name="athena-viewport-measurement-overlay",
+        description="Overlay precise measurements on viewport captures (manual or automatic).",
+        input_schema=vision_specs.VIEWPORT_MEASUREMENT_OVERLAY_SCHEMA,
+        impl=_tool_athena_viewport_measurement_overlay,
+        category="vision",
+        tags=["viewport", "measurement", "overlay"],
+        safety_level="view3d-required",
+    ),
+    ToolDefinition(
+        name="athena-viewport-compare-matrix",
+        description="Render comparison matrices across multiple scene states with synced settings.",
+        input_schema=vision_specs.VIEWPORT_COMPARE_MATRIX_SCHEMA,
+        impl=_tool_athena_viewport_compare_matrix,
+        category="vision",
+        tags=["viewport", "comparison", "matrix"],
+        safety_level="view3d-required",
+    ),
+    ToolDefinition(
+        name="athena-viewport-geometry-heatmap",
+        description="Generate heatmaps for geometric properties using vertex colors and legend overlays.",
+        input_schema=vision_specs.VIEWPORT_GEOMETRY_HEATMAP_SCHEMA,
+        impl=_tool_athena_viewport_geometry_heatmap,
+        category="vision",
+        tags=["viewport", "diagnostic", "heatmap"],
+        safety_level="view3d-required",
+    ),
+    ToolDefinition(
+        name="athena-viewport-context-aware-capture",
+        description="Intelligent capture selection based on context hints and auto-detected issues.",
+        input_schema=vision_specs.VIEWPORT_CONTEXT_AWARE_CAPTURE_SCHEMA,
+        impl=_tool_athena_viewport_context_aware_capture,
+        category="vision",
+        tags=["viewport", "capture", "auto"],
+        safety_level="view3d-required",
+    ),
+    ToolDefinition(
+        name="athena-viewport-xray-section-view",
+        description="Produce section and xray captures with interior display options.",
+        input_schema=vision_specs.VIEWPORT_XRAY_SECTION_SCHEMA,
+        impl=_tool_athena_viewport_xray_section_view,
+        category="vision",
+        tags=["viewport", "section", "xray"],
+        safety_level="view3d-required",
     ),
     ToolDefinition(
         name="blender-batch-operation",

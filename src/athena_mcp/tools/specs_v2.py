@@ -43,6 +43,117 @@ VIEWPORT_SCREENSHOT_SCHEMA: JSONDict = {
             "items": {"type": "string", "enum": ["FACE_ORIENTATION", "EDGE_ANGLE", "THICKNESS", "DISTORTION", "INTERSECTIONS"]},
             "default": [],
         },
+        "auto_frame_selection": {"type": "boolean", "default": False},
+        "highlight_selection": {
+            "type": "object",
+            "properties": {
+                "enabled": {"type": "boolean", "default": False},
+                "color": {
+                    "type": "array",
+                    "items": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                    "minItems": 4,
+                    "maxItems": 4,
+                },
+                "thickness": {"type": "number"},
+            },
+            "default": {},
+            "additionalProperties": False,
+        },
+        "measurement_overlays": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ["distance", "angle", "radius", "area", "perimeter"]},
+                    "points": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "number"},
+                            "minItems": 3,
+                            "maxItems": 3,
+                        },
+                    },
+                    "label": {"type": "string"},
+                    "precision": {"type": "integer", "default": 2},
+                    "unit": {"type": "string", "enum": ["m", "cm", "mm", "auto"], "default": "auto"},
+                    "color": {
+                        "type": "array",
+                        "items": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                        "minItems": 4,
+                        "maxItems": 4,
+                    },
+                },
+                "required": ["type", "points"],
+                "additionalProperties": False,
+            },
+            "default": [],
+        },
+        "annotation_overlays": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ["text", "arrow", "circle", "box", "line", "highlight"]},
+                    "position": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                    "content": {"type": "string"},
+                    "color": {
+                        "type": "array",
+                        "items": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                        "minItems": 4,
+                        "maxItems": 4,
+                    },
+                    "size": {"type": "number"},
+                    "thickness": {"type": "number"},
+                },
+                "required": ["type"],
+                "additionalProperties": False,
+            },
+            "default": [],
+        },
+        "diff_reference": {
+            "type": "object",
+            "properties": {
+                "enabled": {"type": "boolean", "default": False},
+                "reference_image": {"type": "string"},
+                "blend_mode": {"type": "string", "enum": ["difference", "overlay"]},
+            },
+            "default": {},
+            "additionalProperties": False,
+        },
+        "quality_preset": {"type": "string", "enum": ["fast", "balanced", "high"], "default": "balanced"},
+        "auto_optimize_views": {"type": "boolean", "default": False},
+        "edge_display": {
+            "type": "object",
+            "properties": {
+                "mode": {"type": "string", "enum": ["none", "sharp_only", "all", "seams", "creases"], "default": "none"},
+                "thickness": {"type": "number"},
+                "color": {
+                    "type": "array",
+                    "items": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                    "minItems": 4,
+                    "maxItems": 4,
+                },
+            },
+            "default": {},
+            "additionalProperties": False,
+        },
+        "matcap_override": {"type": "string"},
+        "post_processing": {
+            "type": "object",
+            "properties": {
+                "sharpen": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                "contrast": {"type": "number"},
+                "brightness": {"type": "number"},
+            },
+            "default": {},
+            "additionalProperties": False,
+        },
         "output": {
             "type": "object",
             "properties": {

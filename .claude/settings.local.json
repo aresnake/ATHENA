@@ -15,7 +15,8 @@
       "Bash(Get-Content \"C:\\\\Users\\\\adrie\\\\AppData\\\\Roaming\\\\Claude\\\\logs\\\\mcp-server-athena.log\" -Tail 50)",
       "Bash(curl:*)",
       "Bash(pytest:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(find:*)"
     ]
   }
 }
