@@ -74,7 +74,6 @@ _TOOL_REGISTRY: Dict[str, Any] = {
     "blender-mesh-select-by-index": executor.mesh_select_by_index,
     # Diagnostics
     "blender-capabilities": executor.capabilities,
-    "blender-diag-capabilities": executor.capabilities,
     "blender-validate-tool": executor.validate_tool,
     "blender-diag-validate-tool": executor.validate_tool,
     # Safe-first mesh operations
@@ -90,6 +89,77 @@ _TOOL_REGISTRY: Dict[str, Any] = {
     "blender-diag-scene-snapshot": executor.scene_snapshot,
     "blender-diag-object-snapshot": executor.object_snapshot,
     "blender-exec-python": executor.exec_python,
+    # New object ops
+    "blender-object-join": executor.object_join,
+    "blender-object-separate": executor.object_separate,
+    "blender-object-shade": executor.object_shade,
+    "blender-object-rotate": executor.object_rotate,
+    "blender-object-mirror": executor.object_mirror,
+    "blender-object-snap": executor.object_snap,
+    # Modifiers
+    "blender-modifier-apply": executor.modifier_apply,
+    "blender-modifier-move": executor.modifier_move,
+    "blender-modifier-remove": executor.modifier_remove,
+    # Mesh advanced
+    "blender-mesh-spin": executor.mesh_spin,
+    "blender-mesh-screw": executor.mesh_screw,
+    "blender-mesh-normals": executor.mesh_normals,
+    # Materials
+    "blender-material-assign": executor.material_assign,
+    "blender-material-create": executor.material_create,
+    # Curves
+    "blender-curve-primitive": executor.curve_primitive,
+    "blender-curve-convert": executor.curve_convert,
+    # P0 transforms
+    "blender-object-scale": executor.object_scale,
+    "blender-object-apply-transform": executor.object_apply_transform,
+    "blender-object-origin-set": executor.object_origin_set,
+    "blender-object-parent": executor.object_parent,
+    "blender-object-clear-transform": executor.object_clear_transform,
+    "blender-mesh-rotate-selection": executor.mesh_rotate_selection,
+    "blender-object-duplicate": executor.object_duplicate,
+    # Modifiers P0
+    "blender-modifier-add": executor.modifier_add,
+    "blender-modifier-configure": executor.modifier_configure,
+    "blender-modifier-configure-array": executor.modifier_configure_array,
+    "blender-modifier-configure-mirror": executor.modifier_configure_mirror,
+    "blender-mesh-bridge-edge-loops": executor.mesh_bridge_edge_loops,
+    "blender-mesh-fill": executor.mesh_fill,
+    "blender-mesh-grid-fill": executor.mesh_grid_fill,
+    "blender-mesh-remove-doubles": executor.mesh_remove_doubles,
+    # Selection avancée
+    "blender-mesh-select-similar": executor.mesh_select_similar,
+    "blender-mesh-select-by-trait": executor.mesh_select_by_trait,
+    "blender-mesh-select-nth": executor.mesh_select_nth,
+    "blender-mesh-select-random": executor.mesh_select_random,
+    "blender-mesh-select-face-by-sides": executor.mesh_select_face_by_sides,
+    # UV unwrap / projections
+    "blender-uv-unwrap": executor.uv_unwrap,
+    "blender-uv-smart-project": executor.uv_smart_project,
+    "blender-uv-cube-project": executor.uv_cube_project,
+    "blender-uv-cylinder-project": executor.uv_cylinder_project,
+    "blender-uv-sphere-project": executor.uv_sphere_project,
+    # Collections
+    "blender-collection-create": executor.collection_create,
+    "blender-collection-add-objects": executor.collection_add_objects,
+    "blender-collection-remove-objects": executor.collection_remove_objects,
+    "blender-collection-hide": executor.collection_hide,
+    # Rename / IO
+    "blender-object-rename": executor.object_rename,
+    "blender-import-file": executor.import_file,
+    "blender-export-file": executor.export_file,
+    # Mesh cleanup P1
+    "blender-mesh-recalculate-normals": executor.mesh_recalculate_normals,
+    "blender-mesh-validate": executor.mesh_validate,
+    "blender-mesh-triangulate": executor.mesh_triangulate,
+    # Missing tools - now implemented
+    "blender-mesh-query-geometry": executor.mesh_query_geometry,
+    "blender-mesh-query-selection": executor.mesh_query_selection,
+    "blender-mesh-query-topology": executor.mesh_query_topology,
+    "blender-viewport-screenshot-complete": executor.viewport_screenshot_complete,
+    "blender-modifier-bevel": executor.modifier_bevel,
+    "blender-mesh-extrude-manifold": executor.mesh_extrude_manifold,
+    "blender-material-assign-fixed": executor.material_assign_fixed,
 }
 
 
@@ -166,13 +236,20 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             self._send_json(error_response("invalid json", code="bad_request"), status=400)
             return
         tool = payload.get("tool") or payload.get("name")
-        args = payload.get("args", payload.get("arguments", {}))
+        raw_args = payload.get("args")
+        if raw_args is None:
+            raw_args = payload.get("arguments")
+        if raw_args is None:
+            raw_args = payload.get("params") or payload.get("parameters")
+        if raw_args is None:
+            raw_args = {}
         if not isinstance(tool, str):
             self._send_json(error_response("missing tool", code="bad_request"), status=400)
             return
-        if not isinstance(args, dict):
+        if not isinstance(raw_args, dict):
             self._send_json(error_response("args must be object", code="bad_request"), status=400)
             return
+        args = raw_args
 
         done = threading.Event()
         result_box: Dict[str, Any] = {}

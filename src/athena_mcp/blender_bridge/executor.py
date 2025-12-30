@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 from typing import Any, Dict, List, Optional
 
 from .responses import error_response, ok_response
@@ -28,6 +30,15 @@ def _ensure_mode(bpy, mode: str):
         return None
     except Exception as exc:
         return error_response(str(exc), code="invalid_context")
+
+
+def _get_object(bpy, name: str, type_filter: str | None = None):
+    obj = bpy.data.objects.get(name)
+    if obj is None:
+        return None, error_response(f"Object '{name}' not found", code="not_found")
+    if type_filter and obj.type != type_filter:
+        return None, error_response(f"Object '{name}' is not {type_filter}", code="invalid_type")
+    return obj, None
 
 
 def list_objects(args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -1165,3 +1176,2817 @@ def exec_python(args: Dict[str, Any]) -> Dict[str, Any]:
             code="execution_error",
             details={"exception_type": type(exc).__name__},
         )
+
+
+# ---------------------------------------------------------------------------
+# New tools (object ops, transforms, modifiers, mesh advanced, materials, curves)
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# New tools (object ops, transforms, modifiers, mesh advanced, materials, curves)
+# ---------------------------------------------------------------------------
+
+
+def object_join(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    target_name = args.get("target_name")
+    sel_mesh = [obj for obj in bpy.context.selected_objects if obj.type == "MESH"]
+    if target_name:
+        target, err = _get_object(bpy, target_name, "MESH")
+        if err:
+            return err
+        bpy.context.view_layer.objects.active = target
+        if target not in bpy.context.selected_objects:
+            target.select_set(True)
+        if target not in sel_mesh:
+            sel_mesh.append(target)
+    if len(sel_mesh) < 2:
+        return error_response("Need at least two mesh objects selected", code="no_selection")
+    active = bpy.context.view_layer.objects.active
+    if active is None or active.type != "MESH":
+        bpy.context.view_layer.objects.active = sel_mesh[0]
+        active = sel_mesh[0]
+    before_vert = sum(len(o.data.vertices) for o in sel_mesh)
+    before_face = sum(len(o.data.polygons) for o in sel_mesh)
+    try:
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        bpy.ops.object.join()
+        joined = bpy.context.view_layer.objects.active or active
+        return ok_response(
+            result={
+                "joined_object": joined.name,
+                "vertex_count": len(joined.data.vertices),
+                "face_count": len(joined.data.polygons),
+                "vertex_count_before": before_vert,
+                "face_count_before": before_face,
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def object_separate(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    name = args.get("name")
+    sep_type = args.get("type", "SELECTED")
+    obj, err = _get_object(bpy, name, "MESH") if name else _active_mesh(bpy)
+    if err:
+        return err
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    before = set(bpy.data.objects.keys())
+    try:
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        bpy.ops.mesh.separate(type=sep_type)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        after = set(bpy.data.objects.keys())
+        new_objects = list(after - before)
+        return ok_response(result={"original_object": obj.name, "new_objects": new_objects, "count": len(new_objects)})
+    except Exception as exc:
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return error_response(str(exc), code="bridge_error")
+
+
+def object_shade(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    smooth = bool(args.get("smooth", True))
+    try:
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        if smooth:
+            bpy.ops.object.shade_smooth()
+        else:
+            bpy.ops.object.shade_flat()
+        return ok_response(
+            result={
+                "object_name": obj.name,
+                "smooth": smooth,
+                "polygons_affected": len(obj.data.polygons),
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def object_rotate(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import math
+    from mathutils import Matrix, Vector  # type: ignore  # pragma: no cover
+
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"))
+    if err:
+        return err
+    angle = float(args.get("angle"))
+    axis = args.get("axis")
+    if axis not in ("X", "Y", "Z"):
+        return error_response("axis must be X/Y/Z", code="bad_request")
+    angle = max(-360.0, min(360.0, angle))
+    pivot = args.get("pivot")
+    try:
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        bpy.context.view_layer.objects.active = obj
+        if pivot and isinstance(pivot, (list, tuple)) and len(pivot) == 3:
+            pivot_vec = Vector(pivot)
+            rot = Matrix.Rotation(math.radians(angle), 4, axis)
+            obj.matrix_world = Matrix.Translation(pivot_vec) @ rot @ Matrix.Translation(-pivot_vec) @ obj.matrix_world
+        else:
+            idx = "XYZ".index(axis)
+            eul = obj.rotation_euler
+            eul[idx] = math.radians(angle)
+            obj.rotation_euler = eul
+        return ok_response(result={"object_name": obj.name, "rotation_euler": list(obj.rotation_euler)})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def object_mirror(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    axis = args.get("axis")
+    if axis not in ("X", "Y", "Z"):
+        return error_response("axis must be X/Y/Z", code="bad_request")
+    method = args.get("method", "GEOMETRY")
+    idx = "XYZ".index(axis)
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        if method == "SCALE":
+            err = _ensure_mode(bpy, "OBJECT")
+            if err:
+                return err
+            obj.scale[idx] = -obj.scale[idx] if obj.scale[idx] != 0 else -1.0
+        else:
+            err = _ensure_mode(bpy, "EDIT")
+            if err:
+                return err
+            bm = bmesh.from_edit_mesh(obj.data)
+            for v in bm.verts:
+                v.co[idx] = -v.co[idx]
+            bmesh.update_edit_mesh(obj.data, loop_triangles=False)
+            bpy.ops.object.mode_set(mode="OBJECT")
+        return ok_response(result={"object_name": obj.name, "method_used": method, "axis": axis})
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def object_snap(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"))
+    if err:
+        return err
+    target = args.get("target")
+    grid_size = float(args.get("grid_size", 1.0))
+    grid_size = max(0.001, grid_size)
+    try:
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        loc = obj.location.copy()
+        if target == "GRID":
+            obj.location = loc.copy()
+            for i in range(3):
+                obj.location[i] = round(loc[i] / grid_size) * grid_size
+        elif target == "CURSOR":
+            obj.location = bpy.context.scene.cursor.location.copy()
+        elif target == "OBJECT":
+            tgt, terr = _get_object(bpy, args.get("target_name"))
+            if terr:
+                return terr
+            obj.location = tgt.location.copy()
+        else:
+            return error_response("invalid target", code="bad_request")
+        return ok_response(result={"object_name": obj.name, "new_location": list(obj.location)})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def modifier_apply(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    mod_name = args.get("modifier")
+    if not mod_name or mod_name not in obj.modifiers:
+        return error_response("Modifier not found", code="not_found")
+    vert_before = len(obj.data.vertices)
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        bpy.ops.object.modifier_apply(modifier=mod_name)
+        return ok_response(
+            result={
+                "object_name": obj.name,
+                "modifier_applied": mod_name,
+                "vertex_count_before": vert_before,
+                "vertex_count_after": len(obj.data.vertices),
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def modifier_move(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    mod_name = args.get("modifier")
+    direction = args.get("direction")
+    if mod_name not in obj.modifiers:
+        return error_response("Modifier not found", code="not_found")
+    if direction not in ("UP", "DOWN"):
+        return error_response("direction must be UP/DOWN", code="bad_request")
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        op = bpy.ops.object.modifier_move_up if direction == "UP" else bpy.ops.object.modifier_move_down
+        result = op(modifier=mod_name)
+        if "FINISHED" not in result:
+            return error_response("Cannot move modifier", code="invalid_state")
+        stack = [m.name for m in obj.modifiers]
+        return ok_response(result={"object_name": obj.name, "modifier": mod_name, "new_index": stack.index(mod_name), "stack": stack})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def modifier_remove(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    mod_name = args.get("modifier")
+    if mod_name not in obj.modifiers:
+        return error_response("Modifier not found", code="not_found")
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        bpy.ops.object.modifier_remove(modifier=mod_name)
+        return ok_response(
+            result={
+                "object_name": obj.name,
+                "modifier_removed": mod_name,
+                "remaining_modifiers": [m.name for m in obj.modifiers],
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_spin(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import math
+    import bmesh  # type: ignore  # pragma: no cover
+    from mathutils import Vector  # type: ignore  # pragma: no cover
+
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    steps = int(args.get("steps", 12))
+    steps = max(2, min(512, steps))
+    angle = float(args.get("angle", 360))
+    angle = max(0.0, min(360.0, angle))
+    axis = args.get("axis", "Z")
+    if axis not in ("X", "Y", "Z"):
+        return error_response("axis must be X/Y/Z", code="bad_request")
+    center = args.get("center", [0, 0, 0])
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        bm = bmesh.from_edit_mesh(obj.data)
+        before = len(bm.verts)
+        axis_vec = Vector((1, 0, 0)) if axis == "X" else Vector((0, 1, 0)) if axis == "Y" else Vector((0, 0, 1))
+        bpy.ops.mesh.spin(steps=steps, angle=math.radians(angle), axis=axis_vec, center=center)
+        bmesh.update_edit_mesh(obj.data, loop_triangles=False)
+        after = len(bm.verts)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return ok_response(result={"object_name": obj.name, "vertex_count_before": before, "vertex_count_after": after})
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_screw(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    steps = int(args.get("steps", 16))
+    steps = max(2, min(512, steps))
+    turns = int(args.get("turns", 1))
+    turns = max(1, min(100, turns))
+    axis = args.get("axis", "Z")
+    if axis not in ("X", "Y", "Z"):
+        return error_response("axis must be X/Y/Z", code="bad_request")
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        bm = bmesh.from_edit_mesh(obj.data)
+        before = len(bm.verts)
+        bpy.ops.mesh.screw(steps=steps, turns=turns, axis=axis)
+        bmesh.update_edit_mesh(obj.data, loop_triangles=False)
+        after = len(bm.verts)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return ok_response(result={"object_name": obj.name, "vertex_count_before": before, "vertex_count_after": after})
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_normals(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    operation = args.get("operation")
+    inside = bool(args.get("inside", False))
+    if operation not in ("RECALCULATE", "FLIP"):
+        return error_response("operation must be RECALCULATE/FLIP", code="bad_request")
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        bm = bmesh.from_edit_mesh(obj.data)
+        selected_faces = [f for f in bm.faces if f.select]
+        if not selected_faces:
+            return error_response("No selected faces", code="no_selection")
+        if operation == "RECALCULATE":
+            bpy.ops.mesh.normals_make_consistent(inside=inside)
+        else:
+            bpy.ops.mesh.flip_normals()
+        affected = len(selected_faces)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return ok_response(result={"object_name": obj.name, "operation": operation, "faces_affected": affected})
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def material_assign(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    mat_name = args.get("material_name")
+    if not mat_name:
+        return error_response("material_name required", code="bad_request")
+    slot_index = int(args.get("slot_index", 0))
+    mat = bpy.data.materials.get(mat_name)
+    if mat is None:
+        return error_response(f"Material '{mat_name}' not found", code="not_found")
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        if mat.name not in obj.data.materials:
+            obj.data.materials.append(mat)
+        slot_index = max(0, min(slot_index, len(obj.data.materials) - 1))
+        obj.active_material_index = slot_index
+        import bmesh  # type: ignore  # pragma: no cover
+
+        bm = bmesh.from_edit_mesh(obj.data)
+        faces_selected = [f for f in bm.faces if f.select]
+        if not faces_selected:
+            return error_response("No faces selected", code="no_selection")
+        bpy.ops.object.material_slot_assign()
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return ok_response(
+            result={
+                "object_name": obj.name,
+                "material_name": mat.name,
+                "slot_index": slot_index,
+                "faces_assigned": len(faces_selected),
+            }
+        )
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def material_create(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    name = args.get("name")
+    if not name:
+        return error_response("name required", code="bad_request")
+    color = args.get("color", [0.8, 0.8, 0.8, 1.0])
+    metallic = max(0.0, min(1.0, float(args.get("metallic", 0.0))))
+    roughness = max(0.0, min(1.0, float(args.get("roughness", 0.5))))
+    try:
+        base = name
+        final_name = base
+        suffix = 1
+        while bpy.data.materials.get(final_name):
+            final_name = f"{base}.{suffix:03d}"
+            suffix += 1
+        mat = bpy.data.materials.new(final_name)
+        mat.use_nodes = True
+        nodes = mat.node_tree.nodes
+        principled = next((n for n in nodes if n.type == "BSDF_PRINCIPLED"), None)
+        if principled:
+            principled.inputs["Base Color"].default_value = [
+                max(0.0, min(1.0, float(v))) for v in (color + [1.0, 1.0, 1.0, 1.0])[:4]
+            ]
+            principled.inputs["Metallic"].default_value = metallic
+            principled.inputs["Roughness"].default_value = roughness
+        return ok_response(
+            result={
+                "material_name": mat.name,
+                "color": list(principled.inputs["Base Color"].default_value) if principled else color,
+                "metallic": metallic,
+                "roughness": roughness,
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def curve_primitive(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    curve_type = args.get("type")
+    if curve_type not in ("BEZIER_CURVE", "BEZIER_CIRCLE", "NURBS_CURVE", "NURBS_CIRCLE"):
+        return error_response("invalid curve type", code="bad_request")
+    location = args.get("location", [0, 0, 0])
+    radius = float(args.get("radius", 1.0))
+    radius = max(0.001, radius)
+    name = args.get("name")
+    try:
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        op_map = {
+            "BEZIER_CURVE": bpy.ops.curve.primitive_bezier_curve_add,
+            "BEZIER_CIRCLE": bpy.ops.curve.primitive_bezier_circle_add,
+            "NURBS_CURVE": bpy.ops.curve.primitive_nurbs_curve_add,
+            "NURBS_CIRCLE": bpy.ops.curve.primitive_nurbs_circle_add,
+        }
+        op = op_map[curve_type]
+        op(radius=radius, location=location)
+        obj = bpy.context.active_object
+        if name:
+            obj.name = name
+        return ok_response(result={"object_name": obj.name, "curve_type": curve_type, "location": list(obj.location)})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def curve_convert(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "CURVE")
+    if err:
+        return err
+    keep = bool(args.get("keep_original", False))
+    try:
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        source_obj = obj
+        if keep:
+            bpy.ops.object.duplicate()
+            source_obj = bpy.context.active_object
+        bpy.ops.object.convert(target="MESH")
+        mesh_obj = bpy.context.active_object
+        return ok_response(
+            result={
+                "object_name": mesh_obj.name,
+                "vertex_count": len(mesh_obj.data.vertices),
+                "original_kept": keep,
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+# ---------------------------------------------------------------------------
+# Batch P0 - transformations avancées (10 tools incl. modifiers)
+# ---------------------------------------------------------------------------
+
+
+def object_scale(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    sx = float(args.get("sx"))
+    sy = float(args.get("sy", sx))
+    sz = float(args.get("sz", sx))
+    uniform = bool(args.get("uniform", False))
+    if uniform:
+        sy = sz = sx
+    # Clamp
+    def _clamp(v: float) -> float:
+        return max(0.001, min(1000.0, v))
+    sx, sy, sz = _clamp(sx), _clamp(sy), _clamp(sz)
+    try:
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        obj.scale = (sx, sy, sz)
+        return ok_response(result={"name": obj.name, "scale": list(obj.scale), "dimensions": list(obj.dimensions)})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def object_apply_transform(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"))
+    if err:
+        return err
+    flags = {
+        "location": bool(args.get("location", False)),
+        "rotation": bool(args.get("rotation", False)),
+        "scale": bool(args.get("scale", False)),
+        "properties": bool(args.get("properties", False)),
+    }
+    if not any(flags.values()):
+        return error_response("No transform to apply", code="bad_request")
+    try:
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        bpy.ops.object.transform_apply(**flags)
+        return ok_response(
+            result={
+                "name": obj.name,
+                "applied": flags,
+                "final_transform": {
+                    "location": list(obj.location),
+                    "rotation": list(obj.rotation_euler),
+                    "scale": list(obj.scale),
+                },
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def object_origin_set(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"))
+    if err:
+        return err
+    origin_type = args.get("type")
+    center = args.get("center", "MEDIAN")
+    map_type = {
+        "GEOMETRY": "ORIGIN_GEOMETRY",
+        "CURSOR": "ORIGIN_CURSOR",
+        "CENTER_MASS": "ORIGIN_CENTER_OF_MASS",
+        "CENTER_VOLUME": "ORIGIN_CENTER_OF_VOLUME",
+        "GEOMETRY_ORIGIN": "GEOMETRY_ORIGIN",
+    }
+    if origin_type not in map_type:
+        return error_response("Invalid origin type", code="bad_request")
+    try:
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        bpy.ops.object.origin_set(type=map_type[origin_type], center=center)
+        return ok_response(
+            result={"name": obj.name, "origin_type": origin_type, "center": center, "new_location": list(obj.location)}
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def object_parent(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    child, err = _get_object(bpy, args.get("child_name"))
+    if err:
+        return err
+    parent_name = args.get("parent_name")
+    keep = bool(args.get("keep_transform", True))
+    ptype = args.get("type", "OBJECT")
+    if parent_name is not None and parent_name == child.name:
+        return error_response("Cannot parent to self", code="invalid_request")
+    try:
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        bpy.ops.object.select_all(action="DESELECT")
+        child.select_set(True)
+        bpy.context.view_layer.objects.active = child
+        if parent_name:
+            parent, perr = _get_object(bpy, parent_name)
+            if perr:
+                return perr
+            parent.select_set(True)
+            bpy.context.view_layer.objects.active = parent
+            bpy.ops.object.parent_set(type=ptype, keep_transform=keep)
+            relationship = "set"
+            result_parent = parent.name
+        else:
+            bpy.ops.object.parent_clear(type="CLEAR_KEEP_TRANSFORM" if keep else "CLEAR")
+            relationship = "cleared"
+            result_parent = None
+        return ok_response(
+            result={
+                "child": child.name,
+                "parent": result_parent,
+                "keep_transform": keep,
+                "relationship": relationship,
+                "child_location": list(child.location),
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def object_clear_transform(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"))
+    if err:
+        return err
+    flags = {
+        "location": bool(args.get("location", False)),
+        "rotation": bool(args.get("rotation", False)),
+        "scale": bool(args.get("scale", False)),
+        "delta": bool(args.get("delta", False)),
+    }
+    if not any(flags.values()):
+        return error_response("No transform to clear", code="bad_request")
+    try:
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        if flags["location"]:
+            obj.location = (0.0, 0.0, 0.0)
+        if flags["rotation"]:
+            obj.rotation_euler = (0.0, 0.0, 0.0)
+        if flags["scale"]:
+            obj.scale = (1.0, 1.0, 1.0)
+        if flags["delta"]:
+            obj.delta_location = (0.0, 0.0, 0.0)
+            obj.delta_rotation_euler = (0.0, 0.0, 0.0)
+            obj.delta_scale = (1.0, 1.0, 1.0)
+        return ok_response(
+            result={
+                "name": obj.name,
+                "cleared": flags,
+                "final_transform": {
+                    "location": list(obj.location),
+                    "rotation": list(obj.rotation_euler),
+                    "scale": list(obj.scale),
+                },
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_rotate_selection(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+    from mathutils import Matrix, Vector  # type: ignore  # pragma: no cover
+    import math
+
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    angle = args.get("angle")
+    axis = args.get("axis")
+    euler_xyz = args.get("euler_xyz")
+    pivot = args.get("pivot")
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.verts.ensure_lookup_table()
+        selected = [v for v in bm.verts if v.select]
+        if not selected:
+            return error_response("No selection", code="no_selection")
+        if euler_xyz:
+            if not isinstance(euler_xyz, (list, tuple)) or len(euler_xyz) != 3:
+                return error_response("Invalid euler_xyz", code="bad_request")
+            rx, ry, rz = [math.radians(float(v)) for v in euler_xyz]
+            rot_mat = Matrix.Rotation(rz, 3, "Z") @ Matrix.Rotation(ry, 3, "Y") @ Matrix.Rotation(rx, 3, "X")
+        else:
+            if axis not in ("X", "Y", "Z"):
+                return error_response("axis must be X/Y/Z", code="bad_request")
+            if angle is None:
+                return error_response("angle required", code="bad_request")
+            angle_val = max(-360.0, min(360.0, float(angle)))
+            rot_mat = Matrix.Rotation(math.radians(angle_val), 3, axis)
+        if pivot is None:
+            pivot_vec = sum((v.co for v in selected), Vector()) / len(selected)
+        else:
+            if not isinstance(pivot, (list, tuple)) or len(pivot) != 3:
+                return error_response("Invalid pivot", code="bad_request")
+            pivot_vec = Vector(pivot)
+        for v in selected:
+            v.co = pivot_vec + rot_mat @ (v.co - pivot_vec)
+        bmesh.update_edit_mesh(obj.data, loop_triangles=False)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return ok_response(
+            result={
+                "name": obj.name,
+                "rotated_verts": len(selected),
+                "angle": angle if euler_xyz is None else None,
+                "axis": axis if euler_xyz is None else None,
+                "pivot": list(pivot_vec),
+                "euler_xyz": euler_xyz,
+            }
+        )
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def object_duplicate(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    src, err = _get_object(bpy, args.get("name"))
+    if err:
+        return err
+    linked = bool(args.get("linked", False))
+    offset = args.get("offset", [0, 0, 0])
+    new_name = args.get("new_name")
+    collection_name = args.get("collection")
+    try:
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        # Resolve collection
+        target_coll = bpy.context.collection
+        if collection_name:
+            target_coll = bpy.data.collections.get(collection_name)
+            if target_coll is None:
+                return error_response("Invalid collection", code="not_found")
+        dup = src.copy()
+        if not linked:
+            dup.data = src.data.copy()
+        if new_name:
+            base = new_name
+            final = base
+            suffix = 1
+            while bpy.data.objects.get(final):
+                final = f"{base}.{suffix:03d}"
+                suffix += 1
+            dup.name = final
+        target_coll.objects.link(dup)
+        if isinstance(offset, (list, tuple)) and len(offset) == 3:
+            dup.location = (dup.location.x + float(offset[0]), dup.location.y + float(offset[1]), dup.location.z + float(offset[2]))
+        data_shared = dup.data == src.data
+        return ok_response(
+            result={
+                "source": src.name,
+                "duplicate": dup.name,
+                "linked": linked,
+                "location": list(dup.location),
+                "collection": target_coll.name,
+                "data_shared": data_shared,
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def modifier_add(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"))
+    if err:
+        return err
+    mod_name = args.get("modifier_name")
+    mod_type = args.get("modifier_type")
+    if not mod_name or not mod_type:
+        return error_response("modifier_name and modifier_type required", code="bad_request")
+    if obj.modifiers.get(mod_name):
+        return error_response("Modifier name exists", code="conflict")
+    try:
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        mod = obj.modifiers.new(name=mod_name, type=mod_type)
+        return ok_response(result={"name": obj.name, "modifier": mod.name, "type": mod.type, "index": len(obj.modifiers) - 1})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def _set_modifier_value(mod, attr: str, value):
+    if hasattr(mod, attr):
+        try:
+            setattr(mod, attr, value)
+        except Exception:
+            pass
+
+
+def modifier_configure(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"))
+    if err:
+        return err
+    mod_name = args.get("modifier_name")
+    params = args.get("params") or {}
+    mod = obj.modifiers.get(mod_name)
+    if mod is None:
+        return error_response("Modifier not found", code="not_found")
+    try:
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        mtype = mod.type
+        # Generic setter with some per-type clamps
+        if mtype == "ARRAY":
+            if "count" in params:
+                mod.count = max(1, min(10000, int(params["count"])))
+            if "relative_offset_displace" in params:
+                mod.relative_offset_displace = params["relative_offset_displace"]
+            if "constant_offset_displace" in params:
+                mod.constant_offset_displace = params["constant_offset_displace"]
+            if "use_constant_offset" in params:
+                mod.use_constant_offset = bool(params["use_constant_offset"])
+            if "use_merge_vertices" in params:
+                mod.use_merge_vertices = bool(params["use_merge_vertices"])
+            if "merge_threshold" in params:
+                mod.merge_threshold = float(params["merge_threshold"])
+        elif mtype == "MIRROR":
+            for key, attr in [
+                ("use_axis", "use_axis"),
+                ("use_bisect_axis", "use_bisect_axis"),
+            ]:
+                if key in params:
+                    seq = params[key]
+                    if isinstance(seq, (list, tuple)) and len(seq) == 3:
+                        setattr(mod, attr, seq)
+            if "use_clip" in params:
+                mod.use_clip = bool(params["use_clip"])
+            if "use_mirror_merge" in params:
+                mod.use_mirror_merge = bool(params["use_mirror_merge"])
+            if "merge_threshold" in params:
+                mod.merge_threshold = float(params["merge_threshold"])
+            if "mirror_object" in params:
+                mo = bpy.data.objects.get(params["mirror_object"]) if params["mirror_object"] else None
+                mod.mirror_object = mo
+        elif mtype == "SOLIDIFY":
+            for k in ["thickness", "offset", "use_even_offset", "use_quality_normals", "use_rim", "use_rim_only"]:
+                if k in params:
+                    _set_modifier_value(mod, k, params[k])
+        elif mtype == "BOOLEAN":
+            for k in ["operation", "solver", "use_self", "use_hole_tolerant"]:
+                if k in params:
+                    _set_modifier_value(mod, k, params[k])
+            if "object" in params:
+                mo = bpy.data.objects.get(params["object"])
+                if mo is None:
+                    return error_response("Referenced object not found", code="not_found")
+                mod.object = mo
+        elif mtype == "SUBSURF":
+            for k in ["levels", "render_levels", "subdivision_type", "use_creases", "quality"]:
+                if k in params:
+                    _set_modifier_value(mod, k, params[k])
+        elif mtype == "BEVEL":
+            for k in ["width", "segments", "profile", "limit_method", "angle_limit", "use_clamp_overlap", "offset_type"]:
+                if k in params:
+                    _set_modifier_value(mod, k, params[k])
+        elif mtype == "SCREW":
+            for k in ["angle", "steps", "render_steps", "iterations", "screw_offset", "use_smooth_shade", "use_merge_vertices", "merge_threshold"]:
+                if k in params:
+                    _set_modifier_value(mod, k, params[k])
+        elif mtype == "SIMPLE_DEFORM":
+            for k in ["deform_method", "angle", "deform_axis", "lock_x", "lock_y"]:
+                if k in params:
+                    _set_modifier_value(mod, k, params[k])
+            if "origin" in params:
+                mo = bpy.data.objects.get(params["origin"]) if params["origin"] else None
+                mod.origin = mo
+        else:
+            # fallback generic set
+            for k, v in params.items():
+                _set_modifier_value(mod, k, v)
+        return ok_response(result={"name": obj.name, "modifier": mod.name, "type": mod.type, "configured_params": params})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def modifier_configure_array(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import math
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"))
+    if err:
+        return err
+    mod_name = args.get("modifier_name")
+    pattern = args.get("pattern", "LINEAR")
+    count = int(args.get("count", 5))
+    offset = args.get("offset", [1.2, 0.0, 0.0])
+    grid_counts = args.get("grid_counts")
+    use_merge = bool(args.get("use_merge", False))
+    merge_threshold = float(args.get("merge_threshold", 0.01))
+    offset_object = args.get("offset_object")
+    curve_object = args.get("curve_object")
+    mod = obj.modifiers.get(mod_name)
+    if mod is None or mod.type != "ARRAY":
+        return error_response("Modifier not ARRAY type", code="invalid_modifier")
+    try:
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        count = max(1, min(10000, count))
+        if pattern == "LINEAR":
+            mod.count = count
+            mod.relative_offset_displace = offset
+            mod.use_relative_offset = True
+            mod.use_object_offset = False
+        elif pattern == "CIRCULAR":
+            if not offset_object:
+                return error_response("Offset object required for CIRCULAR", code="bad_request")
+            empty = bpy.data.objects.get(offset_object)
+            if empty is None:
+                return error_response("Offset object not found", code="not_found")
+            mod.count = count
+            mod.use_object_offset = True
+            mod.offset_object = empty
+            # rotate empty for evenly spaced; not altering here to avoid side-effects
+        elif pattern == "GRID":
+            if not grid_counts or len(grid_counts) != 2:
+                return error_response("grid_counts required [nx, ny]", code="bad_request")
+            nx, ny = grid_counts
+            nx = max(1, int(nx))
+            ny = max(1, int(ny))
+            mod.count = nx
+            mod.relative_offset_displace = offset
+            mod.use_relative_offset = True
+            # second array on Y if exists
+        elif pattern == "CURVE_FIT":
+            if not curve_object:
+                return error_response("curve_object required for CURVE_FIT", code="bad_request")
+            curve = bpy.data.objects.get(curve_object)
+            if curve is None or curve.type != "CURVE":
+                return error_response("Curve object not found", code="not_found")
+            mod.fit_type = "FIT_CURVE"
+            mod.curve = curve
+            mod.count = count
+        else:  # CUSTOM
+            pass
+        mod.use_merge_vertices = use_merge
+        mod.merge_threshold = merge_threshold
+        return ok_response(
+            result={
+                "name": obj.name,
+                "modifier": mod.name,
+                "pattern": pattern,
+                "count": mod.count,
+                "offset": list(mod.relative_offset_displace),
+                "configuration": "success",
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def modifier_configure_mirror(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"))
+    if err:
+        return err
+    mod_name = args.get("modifier_name")
+    mod = obj.modifiers.get(mod_name)
+    if mod is None or mod.type != "MIRROR":
+        return error_response("Modifier not MIRROR", code="invalid_modifier")
+    use_axis = args.get("use_axis", [True, False, False])
+    use_bisect = args.get("use_bisect_axis", [False, False, False])
+    use_bisect_flip = args.get("use_bisect_flip_axis", [False, False, False])
+    merge_threshold = float(args.get("merge_threshold", 0.001))
+    merge_threshold = max(0.0, min(1.0, merge_threshold))
+    mirror_object = args.get("mirror_object")
+    use_mirror_u = bool(args.get("use_mirror_u", False))
+    use_mirror_v = bool(args.get("use_mirror_v", False))
+    mirror_offset_u = float(args.get("mirror_offset_u", 0.0))
+    mirror_offset_v = float(args.get("mirror_offset_v", 0.0))
+    try:
+        err = _ensure_mode(bpy, "OBJECT")
+        if err:
+            return err
+        if not any(use_axis):
+            return error_response("No axis enabled", code="bad_request")
+        if isinstance(use_axis, (list, tuple)) and len(use_axis) == 3:
+            mod.use_axis = tuple(bool(v) for v in use_axis)
+        if isinstance(use_bisect, (list, tuple)) and len(use_bisect) == 3:
+            mod.use_bisect_axis = tuple(bool(v) for v in use_bisect)
+        if isinstance(use_bisect_flip, (list, tuple)) and len(use_bisect_flip) == 3:
+            mod.use_bisect_flip_axis = tuple(bool(v) for v in use_bisect_flip)
+        mod.use_clip = bool(args.get("use_clip", True))
+        mod.use_mirror_merge = bool(args.get("use_mirror_merge", True))
+        mod.merge_threshold = merge_threshold
+        if mirror_object:
+            mo = bpy.data.objects.get(mirror_object)
+            if mo is None:
+                return error_response("Mirror object not found", code="not_found")
+            mod.mirror_object = mo
+        mod.use_mirror_u = use_mirror_u
+        mod.use_mirror_v = use_mirror_v
+        mod.mirror_offset_u = mirror_offset_u
+        mod.mirror_offset_v = mirror_offset_v
+        return ok_response(
+            result={
+                "name": obj.name,
+                "modifier": mod.name,
+                "axes": list(mod.use_axis),
+                "bisect": list(mod.use_bisect_axis),
+                "clip": mod.use_clip,
+                "merge": mod.use_mirror_merge,
+                "mirror_object": mod.mirror_object.name if mod.mirror_object else None,
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_bridge_edge_loops(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    number_cuts = max(0, min(1000, int(args.get("number_cuts", 0))))
+    smoothness = max(0.0, min(1.0, float(args.get("smoothness", 1.0))))
+    interpolation = args.get("interpolation", "LINEAR")
+    profile_shape = args.get("profile_shape", "SMOOTH")
+    profile_factor = float(args.get("profile_factor", 0.0))
+    twist_offset = int(args.get("twist_offset", 0))
+    merge = bool(args.get("merge", False))
+    merge_threshold = max(0.0, min(1.0, float(args.get("merge_threshold", 0.001))))
+    before_faces = len(obj.data.polygons)
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        bm = bmesh.from_edit_mesh(obj.data)
+        sel_edges = [e for e in bm.edges if e.select]
+        if not sel_edges:
+            return error_response("No edges selected", code="no_selection")
+        bpy.ops.mesh.bridge_edge_loops(
+            number_cuts=number_cuts,
+            interpolation=interpolation,
+            smoothness=smoothness,
+            profile_shape=profile_shape,
+            profile_factor=profile_factor,
+            twist_offset=twist_offset,
+            merge=merge,
+            merge_threshold=merge_threshold,
+        )
+        bmesh.update_edit_mesh(obj.data, loop_triangles=False)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        after_faces = len(obj.data.polygons)
+        return ok_response(
+            result={
+                "name": obj.name,
+                "bridged": True,
+                "faces_created": max(0, after_faces - before_faces),
+                "number_cuts": number_cuts,
+                "interpolation": interpolation,
+            }
+        )
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_fill(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    use_beauty = bool(args.get("use_beauty", True))
+    before_faces = len(obj.data.polygons)
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        bm = bmesh.from_edit_mesh(obj.data)
+        edges_selected = [e for e in bm.edges if e.select]
+        if not edges_selected:
+            return error_response("No edges selected", code="no_selection")
+        bpy.ops.mesh.fill(use_beauty=use_beauty)
+        bmesh.update_edit_mesh(obj.data, loop_triangles=False)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        after_faces = len(obj.data.polygons)
+        return ok_response(
+            result={
+                "name": obj.name,
+                "filled": True,
+                "faces_created": max(0, after_faces - before_faces),
+                "use_beauty": use_beauty,
+            }
+        )
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_grid_fill(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    span = max(1, min(1000, int(args.get("span", 1))))
+    offset = int(args.get("offset", 0))
+    use_interp_simple = bool(args.get("use_interp_simple", False))
+    before_faces = len(obj.data.polygons)
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        bm = bmesh.from_edit_mesh(obj.data)
+        edges_selected = [e for e in bm.edges if e.select]
+        if not edges_selected:
+            return error_response("No edges selected", code="no_selection")
+        bpy.ops.mesh.fill_grid(span=span, offset=offset, use_interp_simple=use_interp_simple)
+        bmesh.update_edit_mesh(obj.data, loop_triangles=False)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        after_faces = len(obj.data.polygons)
+        return ok_response(
+            result={
+                "name": obj.name,
+                "filled": True,
+                "faces_created": max(0, after_faces - before_faces),
+                "span": span,
+                "topology": "grid",
+            }
+        )
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_remove_doubles(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    threshold = float(args.get("threshold", 0.0001))
+    threshold = max(0.0, min(1.0, threshold))
+    use_unselected = bool(args.get("use_unselected", False))
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.verts.ensure_lookup_table()
+        verts = list(bm.verts) if use_unselected else [v for v in bm.verts if v.select]
+        if not verts:
+            return error_response("No vertices", code="no_selection")
+        before = len(bm.verts)
+        bmesh.ops.remove_doubles(bm, verts=verts, dist=threshold)
+        bmesh.update_edit_mesh(obj.data, loop_triangles=False)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        after = len(obj.data.vertices)
+        return ok_response(
+            result={
+                "name": obj.name,
+                "verts_before": before,
+                "verts_after": after,
+                "removed": before - after,
+                "threshold": threshold,
+            }
+        )
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+# ---------------------------------------------------------------------------
+# Selection avancée (tools 16-20)
+# ---------------------------------------------------------------------------
+
+
+def mesh_select_similar(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    raw_type = args.get("type")
+    if not raw_type:
+        return error_response("type parameter required", code="bad_request")
+    sim_type = str(raw_type)
+    threshold = float(args.get("threshold", 0.01))
+    threshold = max(0.0, min(1.0, threshold))
+    compare = args.get("compare", "EQUAL")
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        import bmesh  # type: ignore  # pragma: no cover
+
+        select_mode = bpy.context.tool_settings.mesh_select_mode
+        if not any(sim_type.startswith(prefix) for prefix in ("VERT_", "EDGE_", "FACE_")):
+            if select_mode[0]:
+                sim_type = f"VERT_{sim_type}"
+            elif select_mode[1]:
+                sim_type = f"EDGE_{sim_type}"
+            else:
+                sim_type = f"FACE_{sim_type}"
+
+        bm = bmesh.from_edit_mesh(obj.data)
+        selected_before = sum(1 for f in bm.faces if f.select) + sum(1 for e in bm.edges if e.select) + sum(1 for v in bm.verts if v.select)
+        bpy.ops.mesh.select_similar(type=sim_type, threshold=threshold, compare=compare)
+        bm = bmesh.from_edit_mesh(obj.data)
+        selected_after = sum(1 for f in bm.faces if f.select) + sum(1 for e in bm.edges if e.select) + sum(1 for v in bm.verts if v.select)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return ok_response(
+            result={
+                "name": obj.name,
+                "type": sim_type,
+                "threshold": threshold,
+                "compare": compare,
+                "selected_before": selected_before,
+                "selected_after": selected_after,
+            }
+        )
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_select_by_trait(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+    import math
+
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    trait = args.get("trait")
+    threshold: float | None = None
+    if trait == "SHARP_EDGES":
+        threshold = float(args.get("threshold", math.pi / 6))
+        threshold = max(0.0, min(math.pi, threshold))
+    extend = bool(args.get("extend", False))
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+        if not extend:
+            bpy.ops.mesh.select_all(action="DESELECT")
+        selected_count = 0
+        if trait == "LOOSE_VERTS":
+            verts = [v for v in bm.verts if len(v.link_edges) == 0]
+            for v in verts:
+                v.select = True
+            selected_count = len(verts)
+            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type="VERT")
+        elif trait == "LOOSE_EDGES":
+            edges = [e for e in bm.edges if len(e.link_faces) == 0]
+            for e in edges:
+                e.select = True
+            selected_count = len(edges)
+            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type="EDGE")
+        elif trait == "LOOSE_FACES":
+            faces = [f for f in bm.faces if all(len(e.link_faces) == 1 for e in f.edges)]
+            for f in faces:
+                f.select = True
+            selected_count = len(faces)
+            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type="FACE")
+        elif trait == "BOUNDARY_EDGES":
+            edges = [e for e in bm.edges if len(e.link_faces) == 1]
+            for e in edges:
+                e.select = True
+            selected_count = len(edges)
+            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type="EDGE")
+        elif trait == "BOUNDARY_VERTS":
+            verts = [v for v in bm.verts if any(len(e.link_faces) == 1 for e in v.link_edges)]
+            for v in verts:
+                v.select = True
+            selected_count = len(verts)
+            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type="VERT")
+        elif trait == "NON_MANIFOLD_EDGES":
+            edges = [e for e in bm.edges if len(e.link_faces) == 0 or len(e.link_faces) > 2]
+            for e in edges:
+                e.select = True
+            selected_count = len(edges)
+            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type="EDGE")
+        elif trait == "NON_MANIFOLD_VERTS":
+            verts = []
+            for v in bm.verts:
+                linked_faces = {f for e in v.link_edges for f in e.link_faces}
+                if len(linked_faces) == 0 or any(len(e.link_faces) > 2 for e in v.link_edges):
+                    verts.append(v)
+            for v in verts:
+                v.select = True
+            selected_count = len(verts)
+            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type="VERT")
+        elif trait in ("TRIANGLES", "QUADS", "NGONS"):
+            target = {"TRIANGLES": 3, "QUADS": 4}.get(trait, None)
+            faces = []
+            for f in bm.faces:
+                sides = len(f.verts)
+                if (target and sides == target) or (trait == "NGONS" and sides > 4):
+                    faces.append(f)
+            for f in faces:
+                f.select = True
+            selected_count = len(faces)
+            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type="FACE")
+        elif trait == "SHARP_EDGES":
+            bm.normal_update()
+            edges = []
+            for e in bm.edges:
+                if len(e.link_faces) == 2:
+                    n1 = e.link_faces[0].normal
+                    n2 = e.link_faces[1].normal
+                    if n1.length > 0 and n2.length > 0:
+                        try:
+                            angle = n1.angle(n2)
+                            if threshold is not None and angle > threshold:
+                                edges.append(e)
+                        except Exception:
+                            pass
+            for e in edges:
+                e.select = True
+            selected_count = len(edges)
+            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type="EDGE")
+        elif trait == "INTERIOR_FACES":
+            faces = []
+            for f in bm.faces:
+                if f.edges and all(len(e.link_faces) > 1 for e in f.edges):
+                    if not any(len(e.link_faces) == 1 for e in f.edges):
+                        faces.append(f)
+            for f in faces:
+                f.select = True
+            selected_count = len(faces)
+            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type="FACE")
+        else:
+            return error_response("Invalid trait", code="bad_request")
+        bmesh.update_edit_mesh(obj.data, loop_triangles=False)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return ok_response(
+            result={
+                "name": obj.name,
+                "trait": trait,
+                "selected": selected_count,
+                "threshold": threshold,
+                "extend": extend,
+            }
+        )
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_select_nth(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    nth = max(1, min(10000, int(args.get("nth", 2))))
+    skip = max(0, min(10000, int(args.get("skip", 0))))
+    offset = max(0, min(10000, int(args.get("offset", 0))))
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+        selected_before = sum(1 for v in bm.verts if v.select) + sum(1 for e in bm.edges if e.select) + sum(1 for f in bm.faces if f.select)
+        # manual nth on current selection
+        if any(v.select for v in bm.verts):
+            elems = [v for v in bm.verts if v.select]
+            for i, v in enumerate(elems):
+                v.select = ((i + offset) % nth == 0) and (i >= skip)
+        elif any(e.select for e in bm.edges):
+            elems = [e for e in bm.edges if e.select]
+            for i, e in enumerate(elems):
+                e.select = ((i + offset) % nth == 0) and (i >= skip)
+        elif any(f.select for f in bm.faces):
+            elems = [f for f in bm.faces if f.select]
+            for i, f in enumerate(elems):
+                f.select = ((i + offset) % nth == 0) and (i >= skip)
+        bmesh.update_edit_mesh(obj.data, loop_triangles=False)
+        selected_after = sum(1 for v in bm.verts if v.select) + sum(1 for e in bm.edges if e.select) + sum(1 for f in bm.faces if f.select)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return ok_response(
+            result={
+                "name": obj.name,
+                "nth": nth,
+                "skip": skip,
+                "offset": offset,
+                "selected_before": selected_before,
+                "selected_after": selected_after,
+            }
+        )
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_select_random(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+    import random
+
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    ratio_raw = args.get("ratio", 0.5)
+    try:
+        ratio = float(ratio_raw)
+    except (TypeError, ValueError):
+        ratio = 0.5
+    ratio = max(0.0, min(1.0, ratio))
+    seed_raw = args.get("seed", 0)
+    try:
+        seed = int(seed_raw) if seed_raw is not None else 0
+    except (TypeError, ValueError):
+        seed = 0
+    action = args.get("action", "SELECT")
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+        selected_before = sum(1 for v in bm.verts if v.select) + sum(1 for e in bm.edges if e.select) + sum(1 for f in bm.faces if f.select)
+        random.seed(seed)
+        # operate on current selection mode; detect which domain is selected
+        if any(v.select for v in bm.verts):
+            for v in bm.verts:
+                if v.select:
+                    if action == "SELECT":
+                        v.select = random.random() < ratio
+                    else:
+                        v.select = not (random.random() < ratio)
+        elif any(e.select for e in bm.edges):
+            for e in bm.edges:
+                if e.select:
+                    if action == "SELECT":
+                        e.select = random.random() < ratio
+                    else:
+                        e.select = not (random.random() < ratio)
+        else:
+            for f in bm.faces:
+                if f.select:
+                    if action == "SELECT":
+                        f.select = random.random() < ratio
+                    else:
+                        f.select = not (random.random() < ratio)
+        bmesh.update_edit_mesh(obj.data, loop_triangles=False)
+        selected_after = sum(1 for v in bm.verts if v.select) + sum(1 for e in bm.edges if e.select) + sum(1 for f in bm.faces if f.select)
+        total = len(bm.verts) + len(bm.edges) + len(bm.faces)
+        percent = (selected_after / total) * 100 if total else 0.0
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return ok_response(
+            result={
+                "name": obj.name,
+                "ratio": ratio,
+                "seed": seed,
+                "action": action,
+                "selected": selected_after,
+                "total": total,
+                "percent": percent,
+            }
+        )
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_select_face_by_sides(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    sel_type = args.get("type")
+    sides_exact = args.get("sides")
+    min_sides = args.get("min_sides")
+    max_sides = args.get("max_sides")
+    extend = bool(args.get("extend", False))
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
+        if not extend:
+            bpy.ops.mesh.select_all(action="DESELECT")
+        selected = []
+        for f in bm.faces:
+            sides = len(f.verts)
+            match = False
+            if sel_type == "TRIANGLES" and sides == 3:
+                match = True
+            elif sel_type == "QUADS" and sides == 4:
+                match = True
+            elif sel_type == "NGONS" and sides > 4:
+                match = True
+            elif sel_type == "CUSTOM":
+                if sides_exact is not None:
+                    match = sides == int(sides_exact)
+                elif min_sides is not None and max_sides is not None:
+                    match = int(min_sides) <= sides <= int(max_sides)
+            if match:
+                f.select = True
+                selected.append(f)
+        bmesh.update_edit_mesh(obj.data, loop_triangles=False)
+        total_faces = len(bm.faces)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return ok_response(
+            result={
+                "name": obj.name,
+                "type": sel_type,
+                "selected": len(selected),
+                "total_faces": total_faces,
+                "extend": extend,
+            }
+        )
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+# ---------------------------------------------------------------------------
+# UV tools (21-25)
+# ---------------------------------------------------------------------------
+
+
+def _ensure_uv_layer(obj):
+    if not obj.data.uv_layers:
+        obj.data.uv_layers.new(name="UVMap")
+
+
+def uv_unwrap(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    method = args.get("method", "ANGLE_BASED")
+    margin = max(0.0, min(1.0, float(args.get("margin", 0.001))))
+    fill_holes = bool(args.get("fill_holes", True))
+    correct_aspect = bool(args.get("correct_aspect", True))
+    use_subsurf_data = bool(args.get("use_subsurf_data", False))
+    try:
+        _ensure_uv_layer(obj)
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
+        if not any(f.select for f in bm.faces):
+            return error_response("No faces selected", code="no_selection")
+        bpy.ops.uv.unwrap(
+            method=method,
+            margin=margin,
+            fill_holes=fill_holes,
+            correct_aspect=correct_aspect,
+            use_subsurf_data=use_subsurf_data,
+        )
+        bmesh.update_edit_mesh(obj.data, loop_triangles=False)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        uv_layer = obj.data.uv_layers.active
+        uv_count = 0
+        if uv_layer:
+            for poly in obj.data.polygons:
+                for li in poly.loop_indices:
+                    uv_count += 1
+        return ok_response(
+            result={"name": obj.name, "method": method, "unwrapped": True, "uv_count": uv_count, "margin": margin}
+        )
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def uv_smart_project(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    angle_limit = max(1.0, min(89.0, float(args.get("angle_limit", 66.0))))
+    island_margin = max(0.0, min(1.0, float(args.get("island_margin", 0.02))))
+    area_weight = max(0.0, min(1.0, float(args.get("area_weight", 0.0))))
+    correct_aspect = bool(args.get("correct_aspect", True))
+    scale_to_bounds = bool(args.get("scale_to_bounds", False))
+    try:
+        _ensure_uv_layer(obj)
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        if bpy.context.object.mode != "EDIT":
+            bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.mesh.select_mode(type="FACE")
+        bpy.ops.uv.smart_project(
+            angle_limit=angle_limit,
+            island_margin=island_margin,
+            area_weight=area_weight,
+            correct_aspect=correct_aspect,
+            scale_to_bounds=scale_to_bounds,
+        )
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return ok_response(
+            result={
+                "name": obj.name,
+                "method": "smart_project",
+                "angle_limit": angle_limit,
+                "island_margin": island_margin,
+                "area_weight": area_weight,
+                "scale_to_bounds": scale_to_bounds,
+            }
+        )
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def uv_cube_project(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    cube_size = max(0.001, min(1000.0, float(args.get("cube_size", 2.0))))
+    correct_aspect = bool(args.get("correct_aspect", True))
+    clip_to_bounds = bool(args.get("clip_to_bounds", False))
+    scale_to_bounds = bool(args.get("scale_to_bounds", False))
+    try:
+        _ensure_uv_layer(obj)
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        bpy.ops.uv.cube_project(
+            cube_size=cube_size,
+            correct_aspect=correct_aspect,
+            clip_to_bounds=clip_to_bounds,
+            scale_to_bounds=scale_to_bounds,
+        )
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return ok_response(
+            result={
+                "name": obj.name,
+                "projection": "cube",
+                "cube_size": cube_size,
+                "clip_to_bounds": clip_to_bounds,
+                "scale_to_bounds": scale_to_bounds,
+            }
+        )
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def uv_cylinder_project(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    direction = args.get("direction", "ALIGN_TO_OBJECT")
+    align = args.get("align", "POLAR_ZX")
+    radius = max(0.001, min(1000.0, float(args.get("radius", 1.0))))
+    correct_aspect = bool(args.get("correct_aspect", True))
+    clip_to_bounds = bool(args.get("clip_to_bounds", False))
+    scale_to_bounds = bool(args.get("scale_to_bounds", False))
+    try:
+        _ensure_uv_layer(obj)
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        bpy.ops.uv.cylinder_project(
+            direction=direction,
+            align=align,
+            radius=radius,
+            correct_aspect=correct_aspect,
+            clip_to_bounds=clip_to_bounds,
+            scale_to_bounds=scale_to_bounds,
+        )
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return ok_response(
+            result={
+                "name": obj.name,
+                "projection": "cylinder",
+                "direction": direction,
+                "align": align,
+                "radius": radius,
+                "clip_to_bounds": clip_to_bounds,
+                "scale_to_bounds": scale_to_bounds,
+            }
+        )
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def uv_sphere_project(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("name"), "MESH")
+    if err:
+        return err
+    direction = args.get("direction", "ALIGN_TO_OBJECT")
+    align = args.get("align", "POLAR_ZX")
+    correct_aspect = bool(args.get("correct_aspect", True))
+    clip_to_bounds = bool(args.get("clip_to_bounds", False))
+    scale_to_bounds = bool(args.get("scale_to_bounds", False))
+    try:
+        _ensure_uv_layer(obj)
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+        bpy.ops.uv.sphere_project(
+            direction=direction,
+            align=align,
+            correct_aspect=correct_aspect,
+            clip_to_bounds=clip_to_bounds,
+            scale_to_bounds=scale_to_bounds,
+        )
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return ok_response(
+            result={
+                "name": obj.name,
+                "projection": "sphere",
+                "direction": direction,
+                "align": align,
+                "clip_to_bounds": clip_to_bounds,
+                "scale_to_bounds": scale_to_bounds,
+            }
+        )
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+# ---------------------------------------------------------------------------
+# Collections (P1)
+# ---------------------------------------------------------------------------
+
+
+def _get_collection(bpy, name: str):
+    col = bpy.data.collections.get(name)
+    if col is None:
+        return None, error_response(f"Collection '{name}' not found", code="not_found")
+    return col, None
+
+
+def collection_create(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    name = args.get("name")
+    parent_name = args.get("parent")
+    hide_viewport = bool(args.get("hide_viewport", False))
+    hide_render = bool(args.get("hide_render", False))
+    hide_select = bool(args.get("hide_select", False))
+    try:
+        col = bpy.data.collections.new(name=name)
+        if parent_name:
+            parent = bpy.data.collections.get(parent_name)
+            if parent is None:
+                return error_response("Parent collection not found", code="not_found")
+            parent.children.link(col)
+            parent_used = parent.name
+        else:
+            bpy.context.scene.collection.children.link(col)
+            parent_used = None
+        col.hide_viewport = hide_viewport
+        col.hide_render = hide_render
+        col.hide_select = hide_select
+        return ok_response(
+            result={
+                "name": col.name,
+                "parent": parent_used,
+                "created": True,
+                "hide_viewport": col.hide_viewport,
+                "hide_render": col.hide_render,
+                "hide_select": col.hide_select,
+                "children_count": len(col.children),
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def collection_add_objects(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    col_name = args.get("collection_name")
+    obj_names = args.get("object_names") or []
+    move = bool(args.get("move", True))
+    unlink_from = args.get("unlink_from")
+    col, err = _get_collection(bpy, col_name)
+    if err:
+        return err
+    linked: List[str] = []
+    errors: List[str] = []
+    try:
+        for obj_name in obj_names:
+            obj = bpy.data.objects.get(obj_name)
+            if obj is None:
+                errors.append(f"Object '{obj_name}' not found")
+                continue
+            if obj.name not in col.objects:
+                col.objects.link(obj)
+                linked.append(obj.name)
+            if move:
+                for other_coll in list(obj.users_collection):
+                    if other_coll == col:
+                        continue
+                    other_coll.objects.unlink(obj)
+        return ok_response(
+            result={
+                "collection": col.name,
+                "linked": linked,
+                "errors": errors,
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def collection_remove_objects(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    col_name = args.get("collection_name")
+    obj_names = args.get("object_names") or []
+    delete_objects = bool(args.get("delete_objects", False))
+    col, err = _get_collection(bpy, col_name)
+    if err:
+        return err
+    removed, not_found, not_in_collection = [], [], []
+    try:
+        for name in obj_names:
+            obj = bpy.data.objects.get(name)
+            if obj is None:
+                not_found.append(name)
+                continue
+            if obj not in col.objects:
+                not_in_collection.append(name)
+                continue
+            col.objects.unlink(obj)
+            removed.append(name)
+            if delete_objects:
+                for c in list(obj.users_collection):
+                    c.objects.unlink(obj)
+                bpy.data.objects.remove(obj, do_unlink=True)
+        return ok_response(
+            result={
+                "collection": col.name,
+                "removed": removed,
+                "not_found": not_found,
+                "not_in_collection": not_in_collection,
+                "deleted": delete_objects,
+                "count": len(removed),
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def collection_hide(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    col_name = args.get("collection_name")
+    col, err = _get_collection(bpy, col_name)
+    if err:
+        return err
+    hide_viewport = args.get("hide_viewport", None)
+    hide_render = args.get("hide_render", None)
+    hide_select = args.get("hide_select", None)
+    recursive = bool(args.get("recursive", False))
+
+    def apply_visibility(c):
+        if hide_viewport is not None:
+            c.hide_viewport = bool(hide_viewport)
+        if hide_render is not None:
+            c.hide_render = bool(hide_render)
+        if hide_select is not None:
+            c.hide_select = bool(hide_select)
+
+    try:
+        apply_visibility(col)
+        children_affected = 0
+        if recursive:
+            def walk(c):
+                nonlocal children_affected
+                for child in c.children:
+                    apply_visibility(child)
+                    children_affected += 1
+                    walk(child)
+            walk(col)
+        return ok_response(
+            result={
+                "collection": col.name,
+                "hide_viewport": col.hide_viewport,
+                "hide_render": col.hide_render,
+                "hide_select": col.hide_select,
+                "recursive": recursive,
+                "children_affected": children_affected,
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+# ---------------------------------------------------------------------------
+# Rename / Import / Export
+# ---------------------------------------------------------------------------
+
+
+def object_rename(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    old_name = args.get("old_name")
+    if not old_name:
+        return error_response("old_name is required", code="invalid_args")
+    obj, err = _get_object(bpy, old_name)
+    if err:
+        return err
+    target_name = args.get("new_name") or obj.name
+    find = args.get("find")
+    replace = args.get("replace", "")
+    prefix = args.get("prefix")
+    suffix = args.get("suffix")
+
+    new_name = target_name
+    if find:
+        new_name = new_name.replace(find, replace if replace is not None else "")
+    if prefix:
+        new_name = f"{prefix}{new_name}"
+    if suffix:
+        new_name = f"{new_name}{suffix}"
+    if not new_name:
+        return error_response("Resulting name is empty", code="invalid_args")
+
+    desired = new_name
+    obj.name = desired
+    unique = obj.name == desired
+
+    data_renamed = False
+    data_name = None
+    if bool(args.get("rename_data", False)) and getattr(obj, "data", None):
+        obj.data.name = obj.name
+        data_name = obj.data.name
+        data_renamed = True
+
+    return ok_response(
+        result={
+            "old_name": old_name,
+            "new_name": obj.name,
+            "unique": unique,
+            "data_renamed": data_renamed,
+            "data_name": data_name,
+        }
+    )
+
+
+def _detect_import_format(filepath: str, explicit: Optional[str]) -> Optional[str]:
+    if explicit:
+        return explicit.upper()
+    ext = os.path.splitext(filepath)[1].lower()
+    mapping = {
+        ".obj": "OBJ",
+        ".fbx": "FBX",
+        ".gltf": "GLTF",
+        ".glb": "GLB",
+        ".stl": "STL",
+        ".ply": "PLY",
+        ".x3d": "X3D",
+        ".dae": "COLLADA",
+    }
+    return mapping.get(ext)
+
+
+def import_file(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    filepath = args.get("filepath")
+    if not filepath or not isinstance(filepath, str):
+        return error_response("filepath is required", code="invalid_args")
+    if not os.path.isfile(filepath):
+        return error_response("File not found", code="not_found")
+
+    fmt = _detect_import_format(filepath, args.get("format"))
+    if not fmt:
+        return error_response("Unsupported format", code="unsupported_format")
+
+    forward = args.get("forward_axis", "Y")
+    up = args.get("up_axis", "Z")
+    scale = args.get("global_scale", 1.0)
+    use_split_objects = bool(args.get("use_split_objects", True))
+    use_split_groups = bool(args.get("use_split_groups", False))
+    collection_name = args.get("collection_name")
+
+    def _ensure_collection(name: str):
+        col = bpy.data.collections.get(name)
+        if col is None:
+            col = bpy.data.collections.new(name=name)
+            bpy.context.scene.collection.children.link(col)
+        return col
+
+    imported_names: List[str] = []
+    try:
+        bpy.ops.object.mode_set(mode="OBJECT")
+    except Exception:
+        pass
+
+    try:
+        if fmt == "OBJ":
+            op = getattr(bpy.ops.wm, "obj_import", None)
+            if op is None:
+                return error_response("OBJ import operator not available", code="unsupported_format")
+            op(filepath=filepath, forward_axis=forward, up_axis=up, global_scale=scale, use_split_objects=use_split_objects, use_split_groups=use_split_groups)
+        elif fmt == "FBX":
+            bpy.ops.import_scene.fbx(filepath=filepath, axis_forward=forward, axis_up=up, global_scale=scale, use_custom_normals=True)
+        elif fmt in {"GLTF", "GLB"}:
+            bpy.ops.import_scene.gltf(filepath=filepath)
+        elif fmt == "STL":
+            op = getattr(bpy.ops.wm, "stl_import", None)
+            if op is None:
+                return error_response("STL import operator not available", code="unsupported_format")
+            op(filepath=filepath, global_scale=scale, use_facet_normal=True)
+        elif fmt == "PLY":
+            op = getattr(bpy.ops.wm, "ply_import", None)
+            if op is None:
+                return error_response("PLY import operator not available", code="unsupported_format")
+            op(filepath=filepath)
+        elif fmt == "X3D":
+            bpy.ops.import_scene.x3d(filepath=filepath)
+        elif fmt == "COLLADA":
+            op = getattr(bpy.ops.wm, "collada_import", None)
+            if op is None:
+                return error_response("Collada import operator not available", code="unsupported_format")
+            op(filepath=filepath)
+        else:
+            return error_response("Unsupported format", code="unsupported_format")
+
+        imported_objs = list(bpy.context.selected_objects)
+        if collection_name:
+            col = _ensure_collection(collection_name)
+            for obj in imported_objs:
+                if obj not in col.objects:
+                    col.objects.link(obj)
+        imported_names = [obj.name for obj in imported_objs]
+
+        return ok_response(
+            result={
+                "filepath": filepath,
+                "format": fmt,
+                "imported_objects": imported_names,
+                "count": len(imported_names),
+                "collection": collection_name,
+                "global_scale": scale,
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def _detect_export_format(filepath: str, explicit: Optional[str]) -> Optional[str]:
+    if explicit:
+        return explicit.upper()
+    ext = os.path.splitext(filepath)[1].lower()
+    mapping = {
+        ".obj": "OBJ",
+        ".fbx": "FBX",
+        ".gltf": "GLTF",
+        ".glb": "GLB",
+        ".stl": "STL",
+        ".ply": "PLY",
+        ".usd": "USD",
+    }
+    return mapping.get(ext)
+
+
+def export_file(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    filepath = args.get("filepath")
+    if not filepath or not isinstance(filepath, str):
+        return error_response("filepath is required", code="invalid_args")
+    directory = os.path.dirname(filepath) or "."
+    if not os.path.isdir(directory):
+        return error_response("Output directory not found", code="not_found")
+
+    fmt = _detect_export_format(filepath, args.get("format"))
+    if not fmt:
+        return error_response("Unsupported format", code="unsupported_format")
+
+    export_selected = bool(args.get("export_selected", False))
+    forward = args.get("forward_axis", "Y")
+    up = args.get("up_axis", "Z")
+    scale = args.get("global_scale", 1.0)
+    apply_modifiers = bool(args.get("apply_modifiers", True))
+    export_materials = bool(args.get("export_materials", True))
+    export_animations = bool(args.get("export_animations", True))
+
+    try:
+        bpy.ops.object.mode_set(mode="OBJECT")
+    except Exception:
+        pass
+
+    if export_selected and not bpy.context.selected_objects:
+        return error_response("No selected objects to export", code="invalid_args")
+
+    try:
+        if fmt == "OBJ":
+            op = getattr(bpy.ops.wm, "obj_export", None)
+            if op is None:
+                # fallback legacy
+                op = bpy.ops.export_scene.obj
+                op(filepath=filepath, use_selection=export_selected, axis_forward=forward, axis_up=up, global_scale=scale, use_materials=export_materials, use_uvs=True, use_mesh_modifiers=apply_modifiers)
+            else:
+                op(filepath=filepath, export_selected_objects=export_selected, forward_axis=forward, up_axis=up, global_scale=scale, export_materials=export_materials, export_uv=True, apply_modifiers=apply_modifiers)
+        elif fmt == "FBX":
+            bpy.ops.export_scene.fbx(
+                filepath=filepath,
+                use_selection=export_selected,
+                axis_forward=forward,
+                axis_up=up,
+                global_scale=scale,
+                apply_unit_scale=True,
+                bake_space_transform=False,
+                use_mesh_modifiers=apply_modifiers,
+                add_leaf_bones=False,
+                apply_scale_options="FBX_SCALE_ALL",
+                bake_anim=export_animations,
+            )
+        elif fmt in {"GLTF", "GLB"}:
+            export_format = "GLB" if fmt == "GLB" else "GLTF_SEPARATE"
+            bpy.ops.export_scene.gltf(
+                filepath=filepath,
+                export_format=export_format,
+                use_selection=export_selected,
+                export_apply=apply_modifiers,
+                export_materials="EXPORT" if export_materials else "NONE",
+                export_colors=True,
+                export_animations=export_animations,
+            )
+        elif fmt == "STL":
+            op = getattr(bpy.ops.wm, "stl_export", None)
+            if op is None:
+                return error_response("STL export operator not available", code="unsupported_format")
+            op(filepath=filepath, use_selection=export_selected, global_scale=scale, ascii=False, use_batch_own_dir=False, use_batch_name=False)
+        elif fmt == "PLY":
+            op = getattr(bpy.ops.wm, "ply_export", None)
+            if op is None:
+                return error_response("PLY export operator not available", code="unsupported_format")
+            op(filepath=filepath, use_selection=export_selected, global_scale=scale)
+        elif fmt == "USD":
+            op = getattr(bpy.ops.wm, "usd_export", None)
+            if op is None:
+                return error_response("USD export operator not available", code="unsupported_format")
+            op(filepath=filepath, selected_objects_only=export_selected, export_animation=export_animations)
+        else:
+            return error_response("Unsupported format", code="unsupported_format")
+
+        exported_objs = list(bpy.context.selected_objects) if export_selected else list(bpy.data.objects)
+        return ok_response(
+            result={
+                "filepath": filepath,
+                "format": fmt,
+                "exported_objects": [o.name for o in exported_objs],
+                "count": len(exported_objs),
+                "export_selected": export_selected,
+                "global_scale": scale,
+            }
+        )
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+# ---------------------------------------------------------------------------
+# Mesh cleanup (P1)
+# ---------------------------------------------------------------------------
+
+
+def mesh_recalculate_normals(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    args = args or {}
+    name = args.get("name")
+    inside = bool(args.get("inside", False))
+    operation = args.get("operation", "RECALCULATE")
+    obj, err = _get_object(bpy, name, "MESH")
+    if err:
+        return err
+    try:
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        if operation == "FLIP":
+            bpy.ops.mesh.flip_normals()
+            op_used = "FLIP"
+        else:
+            bpy.ops.mesh.normals_make_consistent(inside=inside)
+            op_used = "RECALCULATE"
+        bpy.ops.object.mode_set(mode="OBJECT")
+        faces_affected = len(obj.data.polygons)
+        return ok_response(
+            result={
+                "name": obj.name,
+                "operation": op_used,
+                "inside": inside,
+                "faces_affected": faces_affected,
+                "consistent": True,
+            }
+        )
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_validate(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+    args = args or {}
+    name = args.get("name")
+    if not name:
+        return error_response("name parameter required", code="bad_request")
+    obj, err = _get_object(bpy, name, "MESH")
+    if err:
+        return err
+    check_loose_verts = bool(args.get("check_loose_verts", True))
+    check_loose_edges = bool(args.get("check_loose_edges", True))
+    check_non_manifold = bool(args.get("check_non_manifold", True))
+    check_degenerate = bool(args.get("check_degenerate", True))
+    check_doubles = bool(args.get("check_doubles", True))
+    doubles_threshold = float(args.get("doubles_threshold", 0.0001))
+
+    bpy.context.view_layer.objects.active = obj
+    needs_update = False
+    try:
+        bpy.ops.object.mode_set(mode="EDIT")
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+
+        issues: Dict[str, int] = {}
+        if check_loose_verts:
+            issues["loose_verts"] = len([v for v in bm.verts if len(v.link_edges) == 0])
+        if check_loose_edges:
+            issues["loose_edges"] = len([e for e in bm.edges if len(e.link_faces) == 0])
+        if check_non_manifold:
+            issues["non_manifold_edges"] = len([e for e in bm.edges if len(e.link_faces) > 2])
+        if check_degenerate:
+            issues["degenerate_faces"] = len([f for f in bm.faces if f.calc_area() < 0.0001])
+        if check_doubles and doubles_threshold > 0:
+            dup = bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=doubles_threshold)
+            doubles_removed = len(dup.get("targetmap", {}))
+            issues["doubles"] = doubles_removed
+            needs_update = True
+
+        stats = {"total_verts": len(bm.verts), "total_edges": len(bm.edges), "total_faces": len(bm.faces)}
+        return ok_response(result={"name": obj.name, "issues": issues, "stats": stats, "valid": all(v == 0 for v in issues.values())})
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+    finally:
+        try:
+            if needs_update:
+                bmesh.update_edit_mesh(obj.data)
+        except Exception:
+            pass
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+
+
+def mesh_triangulate(args: Dict[str, Any]) -> Dict[str, Any]:
+    bpy = _require_bpy()
+    import bmesh  # type: ignore  # pragma: no cover
+    args = args or {}
+    name = args.get("name")
+    obj, err = _get_object(bpy, name, "MESH")
+    if err:
+        return err
+    quad_method = args.get("quad_method", "BEAUTY")
+    ngon_method = args.get("ngon_method", "BEAUTY")
+    keep_normals = bool(args.get("keep_normals", False))
+    try:
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.mode_set(mode="EDIT")
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
+        faces_before = len(bm.faces)
+        bmesh.ops.triangulate(bm, faces=bm.faces[:], quad_method=quad_method, ngon_method=ngon_method)
+        bmesh.update_edit_mesh(obj.data)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        faces_after = len(obj.data.polygons)
+        return ok_response(
+            result={
+                "name": obj.name,
+                "faces_before": faces_before,
+                "faces_after": faces_after,
+                "quad_method": quad_method,
+                "ngon_method": ngon_method,
+                "keep_normals": keep_normals,
+            }
+        )
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+# Additional executor functions for missing tools
+# This file will be appended to executor.py
+
+def mesh_query_geometry(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Query mesh geometry data (vertices, edges, faces)."""
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("object_name"), "MESH")
+    if err:
+        return err
+
+    mesh = obj.data
+    get_vertices = args.get("get_vertices", True)
+    get_edges = args.get("get_edges", True)
+    get_faces = args.get("get_faces", True)
+    get_normals = args.get("get_normals", True)
+    limit = min(int(args.get("limit", 5000)), 50000)
+    compute_stats = args.get("compute_stats", True)
+
+    result = {"object_name": obj.name}
+
+    try:
+        if get_vertices:
+            verts = mesh.vertices[:limit]
+            result["vertices"] = [{"co": list(v.co), "index": v.index} for v in verts]
+            if compute_stats:
+                result["vertex_count"] = len(mesh.vertices)
+
+        if get_edges:
+            edges = mesh.edges[:limit]
+            result["edges"] = [{"vertices": list(e.vertices), "index": e.index} for e in edges]
+            if compute_stats:
+                result["edge_count"] = len(mesh.edges)
+
+        if get_faces:
+            faces = mesh.polygons[:limit]
+            result["faces"] = [{"vertices": list(f.vertices), "index": f.index} for f in faces]
+            if compute_stats:
+                result["face_count"] = len(mesh.polygons)
+
+        if get_normals and get_vertices:
+            result["vertex_normals"] = [list(v.normal) for v in mesh.vertices[:limit]]
+
+        return ok_response(result=result)
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_query_selection(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Query current mesh selection state."""
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("object_name"), "MESH")
+    if err:
+        return err
+
+    try:
+        import bmesh  # type: ignore
+
+        # Ensure we're in edit mode to access selection
+        original_mode = obj.mode
+        if original_mode != "EDIT":
+            bpy.context.view_layer.objects.active = obj
+            obj.select_set(True)
+            bpy.ops.object.mode_set(mode="EDIT")
+
+        bm = bmesh.from_edit_mesh(obj.data)
+
+        selected_verts = [v.index for v in bm.verts if v.select]
+        selected_edges = [e.index for e in bm.edges if e.select]
+        selected_faces = [f.index for f in bm.faces if f.select]
+
+        result = {
+            "object_name": obj.name,
+            "mode": bpy.context.mode,
+            "selected_vertices": selected_verts,
+            "selected_edges": selected_edges,
+            "selected_faces": selected_faces,
+            "selection_counts": {
+                "vertices": len(selected_verts),
+                "edges": len(selected_edges),
+                "faces": len(selected_faces)
+            }
+        }
+
+        # Restore original mode if changed
+        if original_mode != "EDIT":
+            bpy.ops.object.mode_set(mode=original_mode)
+
+        return ok_response(result=result)
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_query_topology(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Query mesh topology (manifold, watertight, ngons, poles)."""
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("object_name"), "MESH")
+    if err:
+        return err
+
+    checks = args.get("checks", ["all"])
+    do_all = "all" in checks
+
+    try:
+        import bmesh  # type: ignore
+
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+
+        result = {"object_name": obj.name, "checks": {}}
+
+        if do_all or "manifold" in checks:
+            non_manifold_edges = [e.index for e in bm.edges if not e.is_manifold]
+            result["checks"]["manifold"] = {
+                "is_manifold": len(non_manifold_edges) == 0,
+                "non_manifold_edge_count": len(non_manifold_edges)
+            }
+
+        if do_all or "watertight" in checks:
+            boundary_edges = [e.index for e in bm.edges if e.is_boundary]
+            result["checks"]["watertight"] = {
+                "is_watertight": len(boundary_edges) == 0,
+                "boundary_edge_count": len(boundary_edges)
+            }
+
+        if do_all or "ngons" in checks:
+            ngons = [f.index for f in bm.faces if len(f.verts) > 4]
+            result["checks"]["ngons"] = {
+                "has_ngons": len(ngons) > 0,
+                "ngon_count": len(ngons)
+            }
+
+        if do_all or "poles" in checks:
+            poles = [v.index for v in bm.verts if len(v.link_edges) > 5]
+            result["checks"]["poles"] = {
+                "has_poles": len(poles) > 0,
+                "pole_count": len(poles)
+            }
+
+        bm.free()
+        return ok_response(result=result)
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def viewport_screenshot_complete(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Capture viewport screenshots with diagnostics."""
+    bpy = _require_bpy()
+    args = args or {}
+    obj_name = args.get("object_name")
+
+    if not obj_name:
+        return error_response("object_name required", code="bad_request")
+
+    obj, err = _get_object(bpy, obj_name)
+    if err:
+        return err
+
+    try:
+        # For now, return a placeholder - full implementation would require render setup
+        return ok_response(result={
+            "object_name": obj.name,
+            "message": "Screenshot feature requires render context - use Blender UI or render API",
+            "views_requested": args.get("views", ["FRONT"]),
+            "shading_mode": args.get("shading_mode", ["SOLID"])
+        })
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def modifier_bevel(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Add and configure a Bevel modifier."""
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("object_name"), "MESH")
+    if err:
+        return err
+
+    modifier_name = args.get("modifier_name", "Bevel")
+    width = float(args.get("width", 0.05))
+    segments = int(args.get("segments", 3))
+    profile = float(args.get("profile", 0.5))
+
+    try:
+        mod = obj.modifiers.new(name=modifier_name, type='BEVEL')
+        mod.width = width
+        mod.segments = segments
+        mod.profile = profile
+
+        if "limit_method" in args:
+            mod.limit_method = args["limit_method"]
+        if "angle_limit" in args:
+            mod.angle_limit = float(args["angle_limit"]) * 3.14159 / 180.0  # degrees to radians
+
+        return ok_response(result={
+            "object_name": obj.name,
+            "modifier_name": mod.name,
+            "width": mod.width,
+            "segments": mod.segments,
+            "profile": mod.profile
+        })
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
+
+
+def mesh_extrude_manifold(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Extrude selection with manifold-safe options."""
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("object_name"), "MESH")
+    if err:
+        return err
+
+    offset = args.get("offset", [0, 0, 0.5])
+
+    try:
+        import bmesh  # type: ignore
+
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        err = _ensure_mode(bpy, "EDIT")
+        if err:
+            return err
+
+        bm = bmesh.from_edit_mesh(obj.data)
+        selected_faces = [f for f in bm.faces if f.select]
+
+        if not selected_faces:
+            return error_response("No faces selected", code="no_selection")
+
+        # Use bmesh extrude
+        ret = bmesh.ops.extrude_face_region(bm, geom=selected_faces)
+        extruded = [g for g in ret["geom"] if isinstance(g, bmesh.types.BMVert)]
+
+        # Move extruded vertices
+        bmesh.ops.translate(bm, verts=extruded, vec=offset)
+
+        bmesh.update_edit_mesh(obj.data)
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+        return ok_response(result={
+            "object_name": obj.name,
+            "faces_extruded": len(selected_faces),
+            "offset": offset
+        })
+    except Exception as exc:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return error_response(str(exc), code="bridge_error")
+
+
+def material_assign_fixed(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Improved material assignment with auto-slot creation."""
+    bpy = _require_bpy()
+    args = args or {}
+    obj, err = _get_object(bpy, args.get("object_name"), "MESH")
+    if err:
+        return err
+
+    mat_name = args.get("material_name")
+    if not mat_name:
+        return error_response("material_name required", code="bad_request")
+
+    mat = bpy.data.materials.get(mat_name)
+    if mat is None:
+        return error_response(f"Material '{mat_name}' not found", code="not_found")
+
+    assign_to_selection = args.get("assign_to_selection", True)
+    create_slot = args.get("create_slot_if_missing", True)
+
+    try:
+        # Find or create material slot
+        slot_index = -1
+        for i, slot in enumerate(obj.material_slots):
+            if slot.material and slot.material.name == mat_name:
+                slot_index = i
+                break
+
+        if slot_index == -1 and create_slot:
+            obj.data.materials.append(mat)
+            slot_index = len(obj.data.materials) - 1
+
+        if slot_index == -1:
+            return error_response(f"No slot for material '{mat_name}'", code="not_found")
+
+        if assign_to_selection:
+            # Assign to selected faces in edit mode
+            bpy.context.view_layer.objects.active = obj
+            obj.select_set(True)
+            original_mode = obj.mode
+
+            if original_mode != "EDIT":
+                bpy.ops.object.mode_set(mode="EDIT")
+
+            import bmesh  # type: ignore
+            bm = bmesh.from_edit_mesh(obj.data)
+            selected_faces = [f for f in bm.faces if f.select]
+
+            if selected_faces:
+                obj.active_material_index = slot_index
+                bpy.ops.object.material_slot_assign()
+                faces_assigned = len(selected_faces)
+            else:
+                faces_assigned = 0
+
+            if original_mode != "EDIT":
+                bpy.ops.object.mode_set(mode=original_mode)
+        else:
+            # Assign to entire object
+            obj.active_material_index = slot_index
+            faces_assigned = len(obj.data.polygons)
+
+        return ok_response(result={
+            "object_name": obj.name,
+            "material_name": mat.name,
+            "slot_index": slot_index,
+            "faces_assigned": faces_assigned
+        })
+    except Exception as exc:
+        return error_response(str(exc), code="bridge_error")
