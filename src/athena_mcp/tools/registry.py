@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import List
 
 from ..mcp_core.bridge_client import bridge_request
 from .types import ToolDefinition
@@ -182,18 +182,8 @@ def _tool_blender_mesh_merge(args: JSONDict) -> JSONDict:
     return _call_bridge("blender-mesh-merge", {"type": args.get("type")})
 
 
-def _tool_blender_mesh_loop_cut(args: JSONDict) -> JSONDict:
-    return _call_bridge(
-        "blender-mesh-loop-cut",
-        {"cuts": args.get("cuts", 1), "smoothness": args.get("smoothness", 0.0)},
-    )
-
-
-def _tool_blender_mesh_bevel(args: JSONDict) -> JSONDict:
-    return _call_bridge(
-        "blender-mesh-bevel",
-        {"offset": args.get("offset", 0.02), "segments": args.get("segments", 1), "profile": args.get("profile", 0.5)},
-    )
+# Removed duplicate definitions that were identical to lines 153-168
+# (mesh_loop_cut and mesh_bevel were defined twice)
 
 
 def _tool_blender_mesh_select_loop(args: JSONDict) -> JSONDict:
