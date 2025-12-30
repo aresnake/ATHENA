@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "athena-blender": {
+      "command": "D:\\ATHENA\\.venv\\Scripts\\python.exe",
+      "args": [
+        "-m",
+        "athena_mcp.mcp_core.server",
+        "--stdio",
+        "--bridge-host",
+        "127.0.0.1",
+        "--bridge-port",
+        "8765"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONPATH": "D:\\ATHENA\\src"
+      }
+    }
+  }
+}

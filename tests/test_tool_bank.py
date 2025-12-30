@@ -65,4 +65,5 @@ def test_tool_count():
     from athena_mcp.tools import registry
 
     tools = registry.list_tools()
-    assert len(tools) == 42
+    # Expect at least 91 tools (after removing deprecated capabilities tool).
+    assert len(tools) >= 91

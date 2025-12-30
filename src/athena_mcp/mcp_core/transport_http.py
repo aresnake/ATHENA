@@ -40,8 +40,17 @@ class MCPHTTPRequestHandler(BaseHTTPRequestHandler):
         if self.path == "/health":
             self._send_json(ok_response(service="athena-mcp"))
             return
+        if self.path == "/ping":
+            self._send_json(ok_response())
+            return
         if self.path == "/tools/list":
             self._send_json(ok_response(tools=list_tools()))
+            return
+        if self.path == "/resources/list":
+            self._send_json(ok_response(resources=[]))
+            return
+        if self.path == "/prompts/list":
+            self._send_json(ok_response(prompts=[]))
             return
         self._send_json(error_response("not found", code="not_found"), status=404)
 
@@ -54,13 +63,20 @@ class MCPHTTPRequestHandler(BaseHTTPRequestHandler):
             self._send_json(error_response(error or "invalid request", code="bad_request"), status=400)
             return
         name = payload.get("name")
-        args = payload.get("args", payload.get("arguments", {}))
+        raw_args = payload.get("args")
+        if raw_args is None:
+            raw_args = payload.get("arguments")
+        if raw_args is None:
+            raw_args = payload.get("params") or payload.get("parameters")
+        if raw_args is None:
+            raw_args = {}
         if not isinstance(name, str):
             self._send_json(error_response("missing tool name", code="bad_request"), status=400)
             return
-        if not isinstance(args, dict):
+        if not isinstance(raw_args, dict):
             self._send_json(error_response("args must be object", code="bad_request"), status=400)
             return
+        args = raw_args
         response = call_tool(name, args)
         if response.get("ok") and isinstance(response.get("result"), dict):
             inner = response["result"]

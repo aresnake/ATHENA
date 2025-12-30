@@ -2,10 +2,32 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import threading
 
 from .transport_http import serve as serve_http
 from .transport_stdio import serve_stdio
+
+
+def _stdio_hardening() -> None:
+    """
+    MCP stdio rule:
+    - STDOUT must contain ONLY JSON-RPC messages.
+    - Any debug/log/print MUST go to STDERR.
+    This hardening redirects accidental prints/logs to STDERR.
+    """
+    # Keep a handle to the real STDOUT for the JSON-RPC writer (transport_stdio should use sys.__stdout__ or sys.stdout.write)
+    # Redirect "normal" stdout to stderr to prevent accidental pollution.
+    # sys.__stdout__ remains the original stream.
+    sys.stdout = sys.stderr  # type: ignore[assignment]
+
+    # Make stderr unbuffered-ish for better logs in Claude Desktop
+    try:
+        sys.stderr.reconfigure(line_buffering=True)  # py3.7+
+    except Exception:
+        pass
+
+    os.environ.setdefault("PYTHONUNBUFFERED", "1")
 
 
 def main() -> None:
@@ -20,7 +42,7 @@ def main() -> None:
 
     os.environ["ATHENA_BRIDGE_URL"] = f"http://{args.bridge_host}:{args.bridge_port}"
 
-    threads = []
+    threads: list[tuple[threading.Thread, object]] = []
 
     if args.http:
         http_server = serve_http(args.host, args.port)
@@ -29,6 +51,7 @@ def main() -> None:
         threads.append((http_thread, http_server))
 
     if args.stdio:
+        _stdio_hardening()
         try:
             serve_stdio()
         except KeyboardInterrupt:
@@ -36,11 +59,12 @@ def main() -> None:
     else:
         try:
             while threads:
-                for thread, server in threads:
+                for thread, _server in threads:
                     thread.join(timeout=0.5)
         except KeyboardInterrupt:
             for _, server in threads:
-                server.shutdown()
+                # type: ignore[attr-defined]
+                server.shutdown()  # pragma: no cover
 
 
 if __name__ == "__main__":
