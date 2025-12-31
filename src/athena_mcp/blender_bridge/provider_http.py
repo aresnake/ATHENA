@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, Optional
 import sys
+import traceback
 
 if __package__ is None or __package__ == "":  # pragma: no cover - Blender script execution
     sys.path.append(str(Path(__file__).resolve().parents[2]))
@@ -27,6 +28,12 @@ def _ensure_bpy() -> Any:
     if bpy is None:  # pragma: no cover - runtime check
         raise RuntimeError("This bridge must run inside Blender (bpy unavailable)")
     return bpy
+
+
+def _log_exception(context: str, exc: BaseException) -> None:
+    """Log exceptions to stderr without disrupting HTTP responses."""
+    print(f"[athena-bridge] {context}: {exc}", file=sys.stderr)
+    traceback.print_exc()
 
 
 def _get_wait_timeout(default: float = 90.0) -> float:
@@ -64,6 +71,7 @@ def _build_dynamic_registry() -> Dict[str, Any]:
     # Functions that use athena- prefix instead of blender-
     # These are advanced/composite tools that work at a higher abstraction level
     _ATHENA_TOOLS = {
+        'scene_query_complete',
         'spatial_analyze', 'topology_validate_complete', 'measure_batch',
         'validate_operation', 'validate_operation_visual',
         'viewport_diff_comparison', 'viewport_annotate_markup',
@@ -128,6 +136,11 @@ def _build_dynamic_registry() -> Dict[str, Any]:
         "blender-diag-scene-snapshot": "scene_snapshot",
         "blender-diag-object-snapshot": "object_snapshot",
         "blender-dev-exec-python": "exec_python",
+
+        # Athena tools - special cases that don't follow the standard naming pattern
+        "athena-validate-operation-visual": "validate_operation_visual",  # MCP uses athena-validate instead of athena-blender-validate
+        "blender-scene-query-complete": "scene_query_complete",  # Backward compatibility alias
+        "athena-blender-viewport-diagnostics": "viewport_diagnostics",  # MCP exposes both blender- and athena-blender- versions
 
         # NOTE: Athena tools are now auto-discovered via _ATHENA_TOOLS set
         # No manual aliases needed - they're generated automatically from executor.py
@@ -336,11 +349,15 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
 
     def _send_json(self, payload: Dict[str, Any], status: int = 200) -> None:
         body = json.dumps(payload).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError):
+            # Client disconnected mid-response; nothing else to do
+            return
 
     def log_message(self, format: str, *args) -> None:  # pragma: no cover - silence default logging
         return
@@ -383,6 +400,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 result_box["result"] = _execute_tool(tool, args)
                 result_box["status"] = "ok"
             except Exception as exc:
+                _log_exception(f"tool execution failed ({tool})", exc)
                 result_box["status"] = "error"
                 result_box["error"] = str(exc)
             finally:
@@ -407,7 +425,11 @@ def main() -> None:
     host = _DEFAULT_HOST
     port = _DEFAULT_PORT
 
-    server = ThreadingHTTPServer((host, port), BridgeRequestHandler)
+    try:
+        server = ThreadingHTTPServer((host, port), BridgeRequestHandler)
+    except OSError as exc:
+        _log_exception(f"failed to bind HTTP server on {host}:{port}", exc)
+        return
     server.daemon_threads = True
 
     def _serve() -> None:  # pragma: no cover - requires runtime

@@ -1,6 +1,6 @@
 # ATHENA MCP – TOOL REQUEST SPEC V2 (CLEAN)
 
-Source: consolidated from `TOOL_REQUEST_SPEC_V2.md` (batch P0). This is the canonical, cleaned version to drive implementation.
+Canonical cleaned spec for batch P0. The noisy chat log snapshot has been removed to avoid duplication.
 
 Status: specs provided, not yet implemented for this batch.
 

@@ -929,6 +929,10 @@ def _tool_blender_viewport_render_modes(args: JSONDict) -> JSONDict:
     return _call_bridge("blender-viewport-render-modes", _clean_args(args))
 
 
+def _tool_blender_viewport_diagnostics(args: JSONDict) -> JSONDict:
+    return _call_bridge("blender-viewport-diagnostics", _clean_args(args))
+
+
 def _tool_blender_mesh_query_geometry(args: JSONDict) -> JSONDict:
     return _call_bridge("blender-mesh-query-geometry", _clean_args(args))
 
@@ -1075,6 +1079,10 @@ def _tool_athena_measure_batch(args: JSONDict) -> JSONDict:
 
 def _tool_athena_validate_operation(args: JSONDict) -> JSONDict:
     return _call_bridge("athena-blender-validate-operation", _clean_args(args))
+
+
+def _tool_athena_viewport_diagnostics(args: JSONDict) -> JSONDict:
+    return _call_bridge("athena-blender-viewport-diagnostics", _clean_args(args))
 
 
 def _tool_athena_viewport_diff_comparison(args: JSONDict) -> JSONDict:
@@ -1968,7 +1976,7 @@ TOOLS: List[ToolDefinition] = [
         impl=_tool_blender_viewport_screenshot_complete,
         category="diag",
         tags=["viewport", "capture", "render", "overlay"],
-        safety_level="view3d-required",
+        safety_level="view3d-auto",
     ),
     ToolDefinition(
         name="blender-viewport-render-modes",
@@ -1978,6 +1986,15 @@ TOOLS: List[ToolDefinition] = [
         category="diag",
         tags=["viewport", "render", "workbench"],
         safety_level="view3d-required",
+    ),
+    ToolDefinition(
+        name="blender-viewport-diagnostics",
+        description="Report viewport/window context availability (View3D presence, active workspace).",
+        input_schema=specs_v2.VIEWPORT_DIAGNOSTICS_SCHEMA,
+        impl=_tool_blender_viewport_diagnostics,
+        category="diag",
+        tags=["viewport", "diagnostic", "context"],
+        safety_level="safe-first",
     ),
     ToolDefinition(
         name="blender-mesh-query-geometry",
@@ -2292,6 +2309,15 @@ TOOLS: List[ToolDefinition] = [
         impl=_tool_athena_validate_operation,
         category="validation",
         tags=["validation", "quality", "diagnostic"],
+        safety_level="safe-first",
+    ),
+    ToolDefinition(
+        name="athena-blender-viewport-diagnostics",
+        description="Diagnostics for current viewport availability and focused area.",
+        input_schema=specs_v2.VIEWPORT_DIAGNOSTICS_SCHEMA,
+        impl=_tool_athena_viewport_diagnostics,
+        category="diag",
+        tags=["viewport", "diagnostic", "context"],
         safety_level="safe-first",
     ),
     ToolDefinition(

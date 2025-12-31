@@ -17,7 +17,24 @@ def _error(code: str, message: str, **details: Any) -> JSONDict:
     return payload
 
 
-def bridge_request(tool: str, args: JSONDict, timeout: float = 2.0) -> JSONDict:
+def _get_bridge_timeout(default: float = 60.0) -> float:
+    """Return client timeout, optionally overridden via env.
+
+    Uses the same env vars as the Blender bridge server so both sides stay aligned.
+    """
+    env_value = os.getenv("ATHENA_BRIDGE_TIMEOUT") or os.getenv("ATHENA_BLENDER_BRIDGE_TIMEOUT")
+    if env_value:
+        try:
+            return max(float(env_value), 0.1)
+        except ValueError:
+            pass
+    return default
+
+
+_DEFAULT_TIMEOUT = _get_bridge_timeout()
+
+
+def bridge_request(tool: str, args: JSONDict, timeout: float | None = None) -> JSONDict:
     base_url = os.getenv("ATHENA_BRIDGE_URL", "http://127.0.0.1:8765")
     parsed = urllib.parse.urlparse(base_url)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
@@ -31,7 +48,8 @@ def bridge_request(tool: str, args: JSONDict, timeout: float = 2.0) -> JSONDict:
     body = json.dumps(payload).encode("utf-8")
 
     try:
-        conn = http.client.HTTPConnection(host, port, timeout=timeout)
+        effective_timeout = timeout or _DEFAULT_TIMEOUT
+        conn = http.client.HTTPConnection(host, port, timeout=effective_timeout)
         conn.request(
             "POST",
             path,

@@ -4095,7 +4095,7 @@ def viewport_screenshot_complete(args: Dict[str, Any]) -> Dict[str, Any]:
                 path = os.path.join(output_dir, filename)
                 try:
                     with bpy.context.temp_override(**override_ctx):
-                        with _timeout_handler(5):  # OpenGL render is fast: 0.1-2s typical
+                        with _timeout_handler(30):  # Allow slower viewport renders (up to ~30s)
                             success = _capture_render(bpy, cam, resolution, path)
                 except TimeoutError as exc:
                     return error_response(str(exc), code="timeout")

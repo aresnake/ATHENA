@@ -185,6 +185,12 @@ VIEWPORT_RENDER_MODES_SCHEMA: JSONDict = {
     "additionalProperties": False,
 }
 
+VIEWPORT_DIAGNOSTICS_SCHEMA: JSONDict = {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": False,
+}
+
 # Mesh introspection
 MESH_QUERY_GEOMETRY_SCHEMA: JSONDict = {
     "type": "object",
