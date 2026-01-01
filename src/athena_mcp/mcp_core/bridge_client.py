@@ -17,7 +17,11 @@ def _error(code: str, message: str, **details: Any) -> JSONDict:
     return payload
 
 
-def _get_bridge_timeout(default: float = 60.0) -> float:
+_DEFAULT_BRIDGE_WAIT = 90.0
+_CLIENT_TIMEOUT_MARGIN = 5.0
+
+
+def _get_bridge_timeout(default: float = _DEFAULT_BRIDGE_WAIT) -> float:
     """Return client timeout, optionally overridden via env.
 
     Uses the same env vars as the Blender bridge server so both sides stay aligned.
@@ -31,7 +35,8 @@ def _get_bridge_timeout(default: float = 60.0) -> float:
     return default
 
 
-_DEFAULT_TIMEOUT = _get_bridge_timeout()
+_BRIDGE_WAIT_TIMEOUT = _get_bridge_timeout()
+_DEFAULT_TIMEOUT = _BRIDGE_WAIT_TIMEOUT + _CLIENT_TIMEOUT_MARGIN
 
 
 def bridge_request(tool: str, args: JSONDict, timeout: float | None = None) -> JSONDict:
@@ -48,7 +53,10 @@ def bridge_request(tool: str, args: JSONDict, timeout: float | None = None) -> J
     body = json.dumps(payload).encode("utf-8")
 
     try:
-        effective_timeout = timeout or _DEFAULT_TIMEOUT
+        base_timeout = _DEFAULT_TIMEOUT
+        if timeout is not None:
+            base_timeout = max(timeout, _BRIDGE_WAIT_TIMEOUT + _CLIENT_TIMEOUT_MARGIN)
+        effective_timeout = base_timeout
         conn = http.client.HTTPConnection(host, port, timeout=effective_timeout)
         conn.request(
             "POST",

@@ -43,7 +43,7 @@ def test_bridge_timeout_defaults_to_generous_value(monkeypatch):
 
     assert result["ok"] is True
     assert DummyConnection.last_timeout == module._DEFAULT_TIMEOUT
-    assert DummyConnection.last_timeout >= 60.0
+    assert DummyConnection.last_timeout >= module._BRIDGE_WAIT_TIMEOUT + module._CLIENT_TIMEOUT_MARGIN
 
 
 def test_bridge_timeout_respects_env_override(monkeypatch):
@@ -52,7 +52,7 @@ def test_bridge_timeout_respects_env_override(monkeypatch):
 
     _ = module.bridge_request("test-tool", {})
 
-    assert DummyConnection.last_timeout == 12.5
+    assert DummyConnection.last_timeout == module._BRIDGE_WAIT_TIMEOUT + module._CLIENT_TIMEOUT_MARGIN
 
 
 def test_bridge_timeout_can_be_overridden_per_call(monkeypatch):
@@ -61,4 +61,4 @@ def test_bridge_timeout_can_be_overridden_per_call(monkeypatch):
 
     _ = module.bridge_request("test-tool", {}, timeout=2.5)
 
-    assert DummyConnection.last_timeout == 2.5
+    assert DummyConnection.last_timeout == module._BRIDGE_WAIT_TIMEOUT + module._CLIENT_TIMEOUT_MARGIN

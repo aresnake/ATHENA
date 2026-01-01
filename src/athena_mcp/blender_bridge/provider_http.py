@@ -5,6 +5,8 @@ import atexit
 import inspect
 import json
 import threading
+import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -315,19 +317,39 @@ def _schedule_timer_once() -> None:
     bpy.app.timers.register(_process_queue, persistent=True)
 
 
-def _execute_tool(tool: str, args: Dict[str, Any]) -> Dict[str, Any]:
+def _inject_job_meta(args: Dict[str, Any], job_id: str, deadline: float) -> Dict[str, Any]:
+    """Attach job metadata for downstream visibility (non-breaking extras)."""
+    merged = dict(args or {})
+    merged.setdefault("_athena_job_id", job_id)
+    merged.setdefault("_athena_deadline", deadline)
+    return merged
+
+
+def _execute_tool(tool: str, args: Dict[str, Any], job_id: str, deadline: float) -> Dict[str, Any]:
     """Execute a tool using the dynamic registry (supports old and new names)."""
+    if time.monotonic() > deadline:
+        return error_response(
+            "execution deadline exceeded",
+            code="timeout",
+            job_id=job_id,
+            timeout_source="deadline",
+        )
+
     if not isinstance(args, dict):
         args = {}
 
     executor_func = _TOOL_REGISTRY.get(tool)
     if executor_func is None:
-        return error_response(f"Unknown tool '{tool}'", code="unknown_tool")
+        return error_response(f"Unknown tool '{tool}'", code="unknown_tool", job_id=job_id)
 
     try:
-        return executor_func(args)
+        return executor_func(_inject_job_meta(args, job_id, deadline))
     except Exception as exc:
-        return error_response(f"Tool execution failed: {str(exc)}", code="execution_error")
+        return error_response(
+            f"Tool execution failed: {str(exc)}",
+            code="execution_error",
+            job_id=job_id,
+        )
 
 
 class BridgeRequestHandler(BaseHTTPRequestHandler):
@@ -392,17 +414,35 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             return
         args = raw_args
 
+        job_id = uuid.uuid4().hex
+        deadline = time.monotonic() + _WAIT_TIMEOUT
+
         done = threading.Event()
         result_box: Dict[str, Any] = {}
 
         def _job() -> None:
             try:
-                result_box["result"] = _execute_tool(tool, args)
-                result_box["status"] = "ok"
+                response = _execute_tool(tool, args, job_id, deadline)
+                if response.get("ok"):
+                    result_box["result"] = response.get("result", {})
+                    result_box["status"] = "ok"
+                else:
+                    error_payload = response.get("error") or {}
+                    result_box["status"] = "error"
+                    result_box["error"] = error_payload
+                    if isinstance(error_payload, dict) and error_payload.get("timeout_source"):
+                        result_box["timeout_source"] = error_payload.get("timeout_source")
             except Exception as exc:
                 _log_exception(f"tool execution failed ({tool})", exc)
                 result_box["status"] = "error"
-                result_box["error"] = str(exc)
+                result_box["error"] = {
+    "message": str(exc),
+    "code": "execution_error",
+    "job_id": job_id,
+    "details": {"exception": type(exc).__name__},
+}
+
+
             finally:
                 done.set()
 
@@ -410,13 +450,42 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         # Wait for main-thread execution signalled by timer.
         finished = done.wait(timeout=_WAIT_TIMEOUT)
         if not finished:
-            self._send_json(error_response("execution timeout", code="timeout"), status=504)
+            self._send_json(
+                error_response(
+                    "execution timeout",
+                    code="timeout",
+                    job_id=job_id,
+                    timeout_source="wait_timeout",
+                ),
+                status=504,
+            )
             return
         if result_box.get("status") != "ok":
             error_payload = result_box.get("error", "bridge error")
-            self._send_json(error_response(str(error_payload), code="bridge_error"), status=200)
+            message = "bridge error"
+            code = "bridge_error"
+            timeout_source = result_box.get("timeout_source")
+            details: Dict[str, Any] = {}
+            if isinstance(error_payload, dict):
+                message = error_payload.get("message") or message
+                code = error_payload.get("code") or code
+                if error_payload.get("timeout_source"):
+                    timeout_source = error_payload.get("timeout_source")
+                details = {k: v for k, v in error_payload.items() if k not in {"message", "code"}}
+            else:
+                message = str(error_payload)
+            self._send_json(
+                error_response(
+                    message,
+                    code=code,
+                    job_id=job_id,
+                    timeout_source=timeout_source,
+                    details=details,
+                ),
+                status=200,
+            )
             return
-        self._send_json(ok_response(result=result_box.get("result", {})))
+        self._send_json(ok_response(result=result_box.get("result", {}), job_id=job_id))
 
 
 def main() -> None:
